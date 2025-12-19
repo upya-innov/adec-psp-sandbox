@@ -152,7 +152,7 @@ export default function HomePage() {
 
               <button
                 onClick={handleAuthentication}
-                className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+                className="bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700"
               >
                 Obtenir un Token
               </button>
