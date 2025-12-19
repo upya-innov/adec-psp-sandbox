@@ -1,0 +1,1612 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "ADEC PSP API Documentation",
+    "description": "**Authentication:**\nAll endpoints except `/health`, `/countries`, and `/currencies` require Bearer token authentication.\nObtain token via `/auth/token` endpoint using your API key and secret.\n\n**Webhook Security:**\nAll webhooks include `x-secret-key` header containing your API secret for verification.",
+    "version": "1.0.0",
+    "contact": {
+      "name": "API Support",
+      "email": "support@adecsa.ci"
+    },
+    "license": {
+      "name": "Proprietary",
+      "url": "https://adecsa.com/terms"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.adecsa.com/v1",
+      "description": "Production server"
+    },
+    {
+      "url": "https://api.sandbox.adecsa.com/v1",
+      "description": "Sandbox server"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Health",
+      "description": "API health monitoring"
+    },
+    {
+      "name": "Authentication",
+      "description": "API authentication"
+    },
+    {
+      "name": "Payments",
+      "description": "Payment (pay-in) operations"
+    },
+    {
+      "name": "Transfers",
+      "description": "Transfer (pay-out) operations"
+    },
+    {
+      "name": "Utilities",
+      "description": "Utility endpoints for countries, currencies, and channels"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Health check",
+        "description": "Check if API is running and healthy",
+        "responses": {
+          "200": {
+            "description": "API is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "example": "healthy"
+                    },
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time",
+                      "example": "2024-01-15T10:30:00Z"
+                    },
+                    "version": {
+                      "type": "string",
+                      "example": "1.0.0"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "API is unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/token": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Get access token",
+        "description": "Exchange API credentials for a Bearer token",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["api_key", "api_secret"],
+                "properties": {
+                  "api_key": {
+                    "type": "string",
+                    "description": "Your API key",
+                    "example": "pk_live_1234567890abcdef"
+                  },
+                  "api_secret": {
+                    "type": "string",
+                    "description": "Your API secret",
+                    "format": "password",
+                    "example": "sk_live_1234567890abcdef"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authentication successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "access_token": {
+                      "type": "string",
+                      "description": "Bearer token for API access",
+                      "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    },
+                    "token_type": {
+                      "type": "string",
+                      "example": "bearer"
+                    },
+                    "expires_in": {
+                      "type": "integer",
+                      "description": "Token expiration in seconds",
+                      "example": 3600
+                    },
+                    "scope": {
+                      "type": "string",
+                      "example": "payments:write transfers:write"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many authentication attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/payments/direct": {
+      "post": {
+        "tags": ["Payments"],
+        "summary": "Direct API payment",
+        "description": "Process payment directly through API (synchronous).\n\n**Flow:**\n1. Merchant sends payment request\n2. API processes payment immediately\n3. Returns final status in response\n\n**Best for:** Low-value, instant confirmation payments",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectPaymentRequest"
+              },
+              "examples": {
+                "orangeMoney": {
+                  "summary": "Orange Money payment",
+                  "value": {
+                    "transaction_id": "TX-20240115-001",
+                    "amount": 1000,
+                    "currency": "XOF",
+                    "country": "CI",
+                    "channel": "orange-money",
+                    "customer": {
+                      "phone_number": "2250700000000"
+                    },
+                    "description": "Payment for order #12345"
+                  }
+                },
+                "wave": {
+                  "summary": "Wave payment",
+                  "value": {
+                    "transaction_id": "TX-20240115-002",
+                    "amount": 5000,
+                    "currency": "XOF",
+                    "country": "SN",
+                    "channel": "wave",
+                    "customer": {
+                      "phone_number": "221770000000",
+                      "email": "customer@example.com",
+                      "name": "Jane Smith"
+                    },
+                    "description": "Payment for invoice #67890"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Payment processed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentSuccessResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Payment pending (awaiting customer action)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentPendingResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Payment failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many payment requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/payments/redirect": {
+      "post": {
+        "tags": ["Payments"],
+        "summary": "URL redirection payment",
+        "description": "Initiate payment via URL redirection (asynchronous).\n\n**Flow:**\n1. Merchant sends payment request\n2. API returns redirect URL\n3. Customer redirected to payment page\n4. Customer completes payment\n5. Customer redirected back to merchant\n\n**Best for:** Higher-value payments, better UX",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedirectPaymentRequest"
+              },
+              "examples": {
+                "cardPayment": {
+                  "summary": "Card payment with redirect",
+                  "value": {
+                    "transaction_id": "TX-20240115-003",
+                    "amount": 5000,
+                    "currency": "USD",
+                    "country": "US",
+                    "channel": "card",
+                    "customer": {
+                      "phone_number": "1234567890",
+                      "email": "customer@example.com",
+                      "name": "John Doe"
+                    },
+                    "description": "International payment",
+                    "return_url": "https://merchant.com/success",
+                    "cancel_url": "https://merchant.com/cancel"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Redirect URL generated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RedirectResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/payments/transactions": {
+      "get": {
+        "tags": ["Payments"],
+        "summary": "Get payment transactions",
+        "description": "Retrieve payment transactions with filtering and pagination",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "start_date",
+            "in": "query",
+            "description": "Start date for filtering (YYYY-MM-DD)",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "example": "2024-01-01"
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "description": "End date for filtering (YYYY-MM-DD)",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "example": "2024-01-31"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter by payment status",
+            "schema": {
+              "type": "string",
+              "enum": ["PENDING", "SUCCESS", "FAILED", "CANCELLED"]
+            },
+            "example": "SUCCESS"
+          },
+          {
+            "name": "channel",
+            "in": "query",
+            "description": "Filter by payment channel",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "wave",
+                "orange-money",
+                "moov-money",
+                "mtn-money",
+                "card"
+              ]
+            },
+            "example": "orange-money"
+          },
+          {
+            "name": "country",
+            "in": "query",
+            "description": "Filter by country",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Z]{2}$"
+            },
+            "example": "CI"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number for pagination",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "example": 1
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Number of items per page",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "example": 20
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of payment transactions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentTransactionsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/payments/status/{transaction_id}": {
+      "get": {
+        "tags": ["Payments"],
+        "summary": "Check payment status",
+        "description": "Get current status of a payment transaction",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "description": "Unique transaction identifier",
+            "schema": {
+              "type": "string"
+            },
+            "example": "TX-20240115-001"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Payment status retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentStatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Transaction not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transfers": {
+      "post": {
+        "tags": ["Transfers"],
+        "summary": "Initiate transfer",
+        "description": "Initiate a transfer (payout) to a recipient",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferRequest"
+              },
+              "examples": {
+                "mtnMoney": {
+                  "summary": "MTN Money transfer",
+                  "value": {
+                    "transfer_id": "TR-20240115-001",
+                    "amount": 2500,
+                    "currency": "XOF",
+                    "country": "BJ",
+                    "channel": "mtn-money",
+                    "recipient": {
+                      "phone_number": "22960000000",
+                      "name": "Alice Johnson"
+                    },
+                    "description": "Payout for service rendered",
+                    "metadata": {
+                      "contract_id": "CON-789"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Transfer initiated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransferSuccessResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Transfer queued for processing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransferPendingResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid transfer request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transfers/status/{transfer_id}": {
+      "get": {
+        "tags": ["Transfers"],
+        "summary": "Check transfer status",
+        "description": "Get current status of a transfer",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "transfer_id",
+            "in": "path",
+            "required": true,
+            "description": "Unique transfer identifier",
+            "schema": {
+              "type": "string"
+            },
+            "example": "TR-20240115-001"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transfer status retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransferStatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Transfer not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transfers/history": {
+      "get": {
+        "tags": ["Transfers"],
+        "summary": "Get transfer history",
+        "description": "Retrieve transfer history with filtering and pagination",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "start_date",
+            "in": "query",
+            "description": "Start date for filtering (YYYY-MM-DD)",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "example": "2024-01-01"
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "description": "End date for filtering (YYYY-MM-DD)",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "example": "2024-01-31"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter by transfer status",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "PROCESSING",
+                "COMPLETED",
+                "FAILED",
+                "CANCELLED"
+              ]
+            },
+            "example": "COMPLETED"
+          },
+          {
+            "name": "channel",
+            "in": "query",
+            "description": "Filter by transfer channel",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "wave",
+                "orange-money",
+                "moov-money",
+                "mtn-money",
+                "card"
+              ]
+            },
+            "example": "mtn-money"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number for pagination",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "example": 1
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Number of items per page",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "example": 20
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of transfer transactions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransferHistoryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/channels": {
+      "get": {
+        "tags": ["Utilities"],
+        "summary": "Get available channels",
+        "description": "Get available payment/transfer channels for specific country and currency",
+        "parameters": [
+          {
+            "name": "country",
+            "in": "query",
+            "required": true,
+            "description": "ISO 3166-1 alpha-2 country code",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Z]{2}$"
+            },
+            "example": "CI"
+          },
+          {
+            "name": "currency",
+            "in": "query",
+            "required": true,
+            "description": "ISO 4217 currency code",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Z]{3}$"
+            },
+            "example": "XOF"
+          },
+          {
+            "name": "operation",
+            "in": "query",
+            "description": "Type of operation",
+            "schema": {
+              "type": "string",
+              "enum": ["payment", "transfer", "both"],
+              "default": "both"
+            },
+            "example": "payment"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Available channels retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid country or currency",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/countries": {
+      "get": {
+        "tags": ["Utilities"],
+        "summary": "Get supported countries",
+        "description": "Get list of supported countries with their information",
+        "responses": {
+          "200": {
+            "description": "List of supported countries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CountriesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/currencies": {
+      "get": {
+        "tags": ["Utilities"],
+        "summary": "Get supported currencies",
+        "description": "Get list of supported currencies with their information",
+        "responses": {
+          "200": {
+            "description": "List of supported currencies",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurrenciesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Use the access token obtained from `/auth/token` endpoint.\nExample: `Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...`"
+      }
+    },
+    "schemas": {
+      "DirectPaymentRequest": {
+        "type": "object",
+        "required": [
+          "transaction_id",
+          "amount",
+          "currency",
+          "country",
+          "channel",
+          "customer"
+        ],
+        "properties": {
+          "transaction_id": {
+            "type": "string",
+            "description": "Unique transaction identifier from merchant system",
+            "pattern": "^[A-Za-z0-9-_]+$",
+            "minLength": 5,
+            "maxLength": 50,
+            "example": "TX-20240115-001"
+          },
+          "amount": {
+            "type": "integer",
+            "description": "Amount in smallest currency unit (e.g., cents)",
+            "minimum": 100,
+            "maximum": 100000000,
+            "example": 1000
+          },
+          "currency": {
+            "type": "string",
+            "description": "ISO 4217 currency code",
+            "pattern": "^[A-Z]{3}$",
+            "example": "XOF"
+          },
+          "country": {
+            "type": "string",
+            "description": "ISO 3166-1 alpha-2 country code",
+            "pattern": "^[A-Z]{2}$",
+            "example": "CI"
+          },
+          "channel": {
+            "type": "string",
+            "description": "Payment channel",
+            "enum": ["wave", "orange-money", "moov-money", "mtn-money", "card"],
+            "example": "orange-money"
+          },
+          "customer": {
+            "$ref": "#/components/schemas/Customer"
+          },
+          "description": {
+            "type": "string",
+            "description": "Payment description shown to customer",
+            "maxLength": 255,
+            "example": "Payment for order #12345"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Additional metadata stored with the transaction",
+            "additionalProperties": true,
+            "example": {
+              "order_id": "12345",
+              "product": "Premium Subscription"
+            }
+          }
+        }
+      },
+      "RedirectPaymentRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/DirectPaymentRequest"
+          },
+          {
+            "type": "object",
+            "required": ["return_url", "cancel_url"],
+            "properties": {
+              "return_url": {
+                "type": "string",
+                "format": "uri",
+                "description": "URL to redirect customer after successful payment",
+                "example": "https://merchant.com/success"
+              },
+              "cancel_url": {
+                "type": "string",
+                "format": "uri",
+                "description": "URL to redirect customer after cancelled payment",
+                "example": "https://merchant.com/cancel"
+              }
+            }
+          }
+        ]
+      },
+      "TransferRequest": {
+        "type": "object",
+        "required": [
+          "transfer_id",
+          "amount",
+          "currency",
+          "country",
+          "channel",
+          "recipient"
+        ],
+        "properties": {
+          "transfer_id": {
+            "type": "string",
+            "description": "Unique transfer identifier from merchant system",
+            "pattern": "^[A-Za-z0-9-_]+$",
+            "minLength": 5,
+            "maxLength": 50,
+            "example": "TR-20240115-001"
+          },
+          "amount": {
+            "type": "integer",
+            "description": "Amount in smallest currency unit",
+            "minimum": 100,
+            "maximum": 100000000,
+            "example": 2500
+          },
+          "currency": {
+            "type": "string",
+            "description": "ISO 4217 currency code",
+            "pattern": "^[A-Z]{3}$",
+            "example": "XOF"
+          },
+          "country": {
+            "type": "string",
+            "description": "ISO 3166-1 alpha-2 country code",
+            "pattern": "^[A-Z]{2}$",
+            "example": "BJ"
+          },
+          "channel": {
+            "type": "string",
+            "description": "Transfer channel",
+            "enum": ["wave", "orange-money", "moov-money", "mtn-money", "card"],
+            "example": "mtn-money"
+          },
+          "recipient": {
+            "$ref": "#/components/schemas/Recipient"
+          },
+          "sender": {
+            "type": "object",
+            "description": "Sender information",
+            "properties": {
+              "reference": {
+                "type": "string",
+                "description": "Sender reference",
+                "maxLength": 50,
+                "example": "merchant_123"
+              },
+              "name": {
+                "type": "string",
+                "description": "Sender name",
+                "maxLength": 100,
+                "example": "Your Business Name"
+              }
+            }
+          },
+          "description": {
+            "type": "string",
+            "description": "Transfer description",
+            "maxLength": 255,
+            "example": "Payout for service rendered"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Additional metadata stored with the transfer",
+            "additionalProperties": true
+          }
+        }
+      },
+      "Customer": {
+        "type": "object",
+        "required": ["phone_number"],
+        "properties": {
+          "phone_number": {
+            "type": "string",
+            "description": "Customer phone number in E.164 format",
+            "pattern": "^\\+[1-9]\\d{1,14}$",
+            "example": "+2250700000000"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "Customer email address",
+            "example": "customer@example.com"
+          },
+          "name": {
+            "type": "string",
+            "description": "Customer full name",
+            "maxLength": 100,
+            "example": "John Doe"
+          }
+        }
+      },
+      "Recipient": {
+        "type": "object",
+        "required": ["phone_number"],
+        "properties": {
+          "phone_number": {
+            "type": "string",
+            "description": "Recipient phone number in E.164 format",
+            "pattern": "^\\+[1-9]\\d{1,14}$",
+            "example": "+22960000000"
+          },
+          "name": {
+            "type": "string",
+            "description": "Recipient full name",
+            "maxLength": 100,
+            "example": "Alice Johnson"
+          },
+          "account_number": {
+            "type": "string",
+            "description": "Recipient account number (if applicable)",
+            "maxLength": 50,
+            "example": "1234567890"
+          }
+        }
+      },
+      "PaymentSuccessResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "transaction_id": {
+            "type": "string",
+            "example": "TX-20240115-001"
+          },
+          "reference": {
+            "type": "string",
+            "description": "PSP reference number",
+            "example": "PSP-REF-789"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["SUCCESS"],
+            "example": "SUCCESS"
+          },
+          "amount": {
+            "type": "integer",
+            "example": 1000
+          },
+          "currency": {
+            "type": "string",
+            "example": "XOF"
+          },
+          "channel": {
+            "type": "string",
+            "example": "orange-money"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2024-01-15T10:30:00Z"
+          }
+        }
+      },
+      "PaymentPendingResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "transaction_id": {
+            "type": "string",
+            "example": "TX-20240115-001"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["PENDING"],
+            "example": "PENDING"
+          },
+          "message": {
+            "type": "string",
+            "example": "Awaiting customer confirmation"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2024-01-15T10:30:00Z"
+          }
+        }
+      },
+      "RedirectResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "transaction_id": {
+            "type": "string",
+            "example": "TX-20240115-003"
+          },
+          "redirect_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL to redirect customer for payment",
+            "example": "https://payments.com/checkout/abc123"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "URL expiration time",
+            "example": "2024-01-15T11:30:00Z"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2024-01-15T10:30:00Z"
+          }
+        }
+      },
+      "PaymentStatusResponse": {
+        "type": "object",
+        "properties": {
+          "transaction_id": {
+            "type": "string",
+            "example": "TX-20240115-001"
+          },
+          "reference": {
+            "type": "string",
+            "example": "PSP-REF-789"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["PENDING", "SUCCESS", "FAILED", "CANCELLED"],
+            "example": "SUCCESS"
+          },
+          "amount": {
+            "type": "integer",
+            "example": 1000
+          },
+          "currency": {
+            "type": "string",
+            "example": "XOF"
+          },
+          "channel": {
+            "type": "string",
+            "example": "orange-money"
+          },
+          "customer": {
+            "$ref": "#/components/schemas/Customer"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2024-01-15T10:25:00Z"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2024-01-15T10:30:00Z"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "PaymentTransactionsResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PaymentStatusResponse"
+            }
+          },
+          "pagination": {
+            "type": "object",
+            "properties": {
+              "page": {
+                "type": "integer",
+                "example": 1
+              },
+              "limit": {
+                "type": "integer",
+                "example": 20
+              },
+              "total": {
+                "type": "integer",
+                "example": 150
+              },
+              "total_pages": {
+                "type": "integer",
+                "example": 8
+              }
+            }
+          }
+        }
+      },
+      "TransferSuccessResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "transfer_id": {
+            "type": "string",
+            "example": "TR-20240115-001"
+          },
+          "reference": {
+            "type": "string",
+            "example": "TF-REF-456"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["COMPLETED"],
+            "example": "COMPLETED"
+          },
+          "amount": {
+            "type": "integer",
+            "example": 2500
+          },
+          "currency": {
+            "type": "string",
+            "example": "XOF"
+          },
+          "channel": {
+            "type": "string",
+            "example": "mtn-money"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2024-01-15T11:45:00Z"
+          }
+        }
+      },
+      "TransferPendingResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "transfer_id": {
+            "type": "string",
+            "example": "TR-20240115-001"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["PENDING", "PROCESSING"],
+            "example": "PROCESSING"
+          },
+          "message": {
+            "type": "string",
+            "example": "Transfer queued for processing"
+          },
+          "estimated_completion": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2024-01-15T12:00:00Z"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2024-01-15T11:45:00Z"
+          }
+        }
+      },
+      "TransferStatusResponse": {
+        "type": "object",
+        "properties": {
+          "transfer_id": {
+            "type": "string",
+            "example": "TR-20240115-001"
+          },
+          "reference": {
+            "type": "string",
+            "example": "TF-REF-456"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "PROCESSING",
+              "COMPLETED",
+              "FAILED",
+              "CANCELLED"
+            ],
+            "example": "COMPLETED"
+          },
+          "amount": {
+            "type": "integer",
+            "example": 2500
+          },
+          "currency": {
+            "type": "string",
+            "example": "XOF"
+          },
+          "channel": {
+            "type": "string",
+            "example": "mtn-money"
+          },
+          "recipient": {
+            "$ref": "#/components/schemas/Recipient"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2024-01-15T11:40:00Z"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2024-01-15T11:45:00Z"
+          },
+          "failure_reason": {
+            "type": "string",
+            "description": "Reason for failure if status is FAILED",
+            "example": "Insufficient balance"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "TransferHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TransferStatusResponse"
+            }
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
+          }
+        }
+      },
+      "ChannelsResponse": {
+        "type": "object",
+        "properties": {
+          "country": {
+            "type": "string",
+            "example": "CI"
+          },
+          "currency": {
+            "type": "string",
+            "example": "XOF"
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "example": "orange-money"
+                },
+                "name": {
+                  "type": "string",
+                  "example": "Orange Money"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": ["payment", "transfer", "both"],
+                  "example": "both"
+                },
+                "fees": {
+                  "type": "object",
+                  "properties": {
+                    "percentage": {
+                      "type": "number",
+                      "format": "float",
+                      "minimum": 0,
+                      "maximum": 100,
+                      "example": 1.5
+                    },
+                    "fixed": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "example": 100
+                    }
+                  }
+                },
+                "limits": {
+                  "type": "object",
+                  "properties": {
+                    "min_amount": {
+                      "type": "integer",
+                      "example": 100
+                    },
+                    "max_amount": {
+                      "type": "integer",
+                      "example": 500000
+                    },
+                    "daily_limit": {
+                      "type": "integer",
+                      "example": 1000000
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "CountriesResponse": {
+        "type": "object",
+        "properties": {
+          "countries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "example": "CI"
+                },
+                "name": {
+                  "type": "string",
+                  "example": "Côte d'Ivoire"
+                },
+                "currency": {
+                  "type": "string",
+                  "example": "XOF"
+                },
+                "channels": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "example": ["orange-money", "moov-money", "mtn-money"]
+                }
+              }
+            }
+          }
+        }
+      },
+      "CurrenciesResponse": {
+        "type": "object",
+        "properties": {
+          "currencies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "example": "XOF"
+                },
+                "name": {
+                  "type": "string",
+                  "example": "West African CFA franc"
+                },
+                "symbol": {
+                  "type": "string",
+                  "example": "CFA"
+                },
+                "decimals": {
+                  "type": "integer",
+                  "example": 0
+                }
+              }
+            }
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": false
+          },
+          "error": {
+            "type": "string",
+            "example": "invalid_request"
+          },
+          "error_description": {
+            "type": "string",
+            "example": "Invalid phone number format"
+          },
+          "error_details": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2024-01-15T10:30:00Z"
+          }
+        }
+      },
+      "PaymentErrorResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Error"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "transaction_id": {
+                "type": "string",
+                "example": "TX-20240115-001"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["FAILED"],
+                "example": "FAILED"
+              }
+            }
+          }
+        ]
+      },
+      "Pagination": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "example": 1
+          },
+          "limit": {
+            "type": "integer",
+            "example": 20
+          },
+          "total": {
+            "type": "integer",
+            "example": 150
+          },
+          "total_pages": {
+            "type": "integer",
+            "example": 8
+          }
+        }
+      }
+    },
+    "examples": {
+      "PaymentWebhook": {
+        "summary": "Payment webhook payload",
+        "description": "Webhook sent to partner's configured URL when payment status changes.\nIncludes `x-secret-key` header with API secret for verification.",
+        "value": {
+          "headers": {
+            "x-secret-key": "your_api_secret_here",
+            "content-type": "application/json"
+          },
+          "body": {
+            "event": "payment.success",
+            "transaction_id": "TX-123456789",
+            "reference": "PSP-REF-789",
+            "amount": 1000,
+            "currency": "XOF",
+            "status": "SUCCESS",
+            "channel": "orange-money",
+            "customer": {
+              "phone_number": "+2250700000000",
+              "email": "customer@example.com"
+            },
+            "timestamp": "2024-01-15T10:30:00Z",
+            "metadata": {
+              "order_id": "12345"
+            }
+          }
+        }
+      },
+      "TransferWebhook": {
+        "summary": "Transfer webhook payload",
+        "description": "Webhook sent to partner's configured URL when transfer status changes.\nIncludes `x-secret-key` header with API secret for verification.",
+        "value": {
+          "headers": {
+            "x-secret-key": "your_api_secret_here",
+            "content-type": "application/json"
+          },
+          "body": {
+            "event": "transfer.completed",
+            "transfer_id": "TR-987654321",
+            "reference": "TF-REF-456",
+            "amount": 2500,
+            "currency": "XOF",
+            "status": "COMPLETED",
+            "channel": "mtn-money",
+            "recipient": {
+              "phone_number": "+22960000000",
+              "name": "Alice Johnson"
+            },
+            "timestamp": "2024-01-15T11:45:00Z",
+            "metadata": {
+              "contract_id": "CON-789"
+            }
+          }
+        }
+      }
+    }
+  }
+}
