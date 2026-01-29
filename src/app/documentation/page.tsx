@@ -103,7 +103,7 @@ export default function Documentation() {
       title: 'Authentification',
       icon: Key,
       content: (
-        <div className="space-y-6">
+        <div className="space-y-6 ok">
           <div>
             <h4 className="font-semibold text-gray-800 mb-2">Clé API</h4>
             <p className="text-gray-700 mb-3">
