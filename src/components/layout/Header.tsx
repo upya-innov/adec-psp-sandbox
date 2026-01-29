@@ -1,39 +1,42 @@
 'use client';
 
-import { Code, BookOpen, Settings, User } from 'lucide-react';
+import { Code, BookOpen } from 'lucide-react';
+import Link from 'next/link';
 
 export default function Header() {
   return (
-    <header className="bg-white border-b border-gray-200 px-6 py-4">
+    <header className="bg-white border-b border-gray-200 px-6 py-4 shadow-sm">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="bg-blue-600 text-white p-2 rounded-lg">
+          <div
+            className="text-white p-2 rounded-lg"
+            style={{ backgroundColor: '#0b2635' }}
+          >
             <Code className="h-6 w-6" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900">ADEC PSP Sandbox</h1>
-            <p className="text-sm text-gray-600">Testez l&apos;API PSP en temps réel</p>
+            <h1 className="text-xl font-bold text-gray-900">FineoPay API Explorer</h1>
+            <p className="text-sm text-gray-600">Tester et explorer l&apos;API de paiement en temps réel</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
-          <button className="flex items-center gap-2 text-gray-700 hover:text-blue-600">
+        <nav className="flex items-center gap-6">
+          <Link
+            href="/"
+            className="flex items-center gap-2 text-gray-700 hover:text-[#0b2635] transition-colors font-medium"
+          >
+            <Code className="h-5 w-5" />
+            <span>API Explorer</span>
+          </Link>
+
+          <Link
+            href="/documentation"
+            className="flex items-center gap-2 text-gray-700 hover:text-[#0b2635] transition-colors font-medium"
+          >
             <BookOpen className="h-5 w-5" />
-            <span className="hidden md:inline">Documentation</span>
-          </button>
-
-          <button className="flex items-center gap-2 text-gray-700 hover:text-blue-600">
-            <Settings className="h-5 w-5" />
-            <span className="hidden md:inline">Paramètres</span>
-          </button>
-
-          <div className="h-8 w-px bg-gray-200" />
-
-          <button className="flex items-center gap-2 text-gray-700 hover:text-blue-600">
-            <User className="h-5 w-5" />
-            <span className="hidden md:inline">Mon compte</span>
-          </button>
-        </div>
+            <span>Documentation</span>
+          </Link>
+        </nav>
       </div>
     </header>
   );

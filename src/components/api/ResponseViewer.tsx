@@ -37,7 +37,6 @@ export default function ResponseViewer({ response, loading }: ResponseViewerProp
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    // Vous pourriez ajouter un toast ici
   };
 
   const downloadResponse = () => {
@@ -69,25 +68,58 @@ export default function ResponseViewer({ response, loading }: ResponseViewerProp
 
   const isSuccess = response?.status >= 200 && response?.status < 300;
 
-  // Fonction pour formater le JSON avec coloration syntaxique
-  const formatJsonWithColors = (obj: any): string => {
-    const jsonString = JSON.stringify(obj, null, 2);
+  // Fonction pour obtenir le message d'erreur formaté
+  const getErrorMessage = (error: any): string => {
+    if (!error) return '';
 
-    // Coloration syntaxique simple
-    return jsonString
-      .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?)/g, (match) => {
-        let cls = 'text-blue-600';
-        if (/^"/.test(match)) {
-          if (/:$/.test(match)) {
-            cls = 'text-purple-600';
-          } else {
-            cls = 'text-green-600';
-          }
-        }
-        return `<span class="${cls}">${match}</span>`;
-      })
-      .replace(/\b(true|false|null)\b/g, '<span class="text-red-600">$1</span>')
-      .replace(/\b(\d+)\b/g, '<span class="text-orange-600">$1</span>');
+    if (typeof error === 'string') {
+      return error;
+    }
+
+    if (typeof error === 'object') {
+      if (error.message) {
+        return error.message;
+      }
+      if (error.code && error.details) {
+        return `${error.code}: ${error.details}`;
+      }
+      if (error.code) {
+        return error.code;
+      }
+      if (error.details) {
+        return error.details;
+      }
+      return JSON.stringify(error);
+    }
+
+    return String(error);
+  };
+
+  // Fonction pour obtenir le code d'erreur
+  const getErrorCode = (error: any): string => {
+    if (!error) return '';
+
+    if (typeof error === 'string') {
+      return error;
+    }
+
+    if (typeof error === 'object' && error.code) {
+      return error.code;
+    }
+
+    if (typeof error === 'object') {
+      return 'UNKNOWN_ERROR';
+    }
+
+    return String(error);
+  };
+
+  const renderSimpleJson = (obj: any) => {
+    return (
+      <pre className="text-sm font-mono whitespace-pre-wrap">
+        {JSON.stringify(obj, null, 2)}
+      </pre>
+    );
   };
 
   if (loading) {
@@ -132,8 +164,8 @@ export default function ResponseViewer({ response, loading }: ResponseViewerProp
           <div className="flex items-center gap-3">
             <h3 className="font-semibold">Réponse</h3>
             <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-sm ${isSuccess
-                ? 'bg-green-100 text-green-800'
-                : 'bg-red-100 text-red-800'
+              ? 'bg-green-100 text-green-800'
+              : 'bg-red-100 text-red-800'
               }`}>
               {isSuccess ? (
                 <CheckCircle className="h-4 w-4" />
@@ -184,8 +216,8 @@ export default function ResponseViewer({ response, loading }: ResponseViewerProp
           <button
             onClick={() => setViewMode('pretty')}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${viewMode === 'pretty'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
           >
             Pretty
@@ -193,8 +225,8 @@ export default function ResponseViewer({ response, loading }: ResponseViewerProp
           <button
             onClick={() => setViewMode('raw')}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${viewMode === 'raw'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
           >
             Raw
@@ -225,11 +257,9 @@ export default function ResponseViewer({ response, loading }: ResponseViewerProp
 
               {expandedSections.body && response.data && (
                 <div className="bg-gray-50 rounded-md p-4 overflow-x-auto">
-                  <pre className="text-sm font-mono whitespace-pre-wrap">
-                    <div dangerouslySetInnerHTML={{
-                      __html: formatJsonWithColors(response.data)
-                    }} />
-                  </pre>
+                  <div className="text-sm font-mono whitespace-pre-wrap">
+                    {renderSimpleJson(response.data)}
+                  </div>
                 </div>
               )}
             </div>
@@ -274,16 +304,54 @@ export default function ResponseViewer({ response, loading }: ResponseViewerProp
                   <XCircle className="h-5 w-5 text-red-500 mt-0.5" />
                   <div className="space-y-1">
                     <h4 className="font-medium text-red-800">Erreur {response.status}</h4>
+
+                    {/* Afficher le message d'erreur principal */}
+                    {(response.data?.message || response.data?.error?.message) && (
+                      <p className="text-red-600 text-sm">
+                        {response.data.message || response.data.error.message}
+                      </p>
+                    )}
+
+                    {/* Afficher la description de l'erreur */}
                     {response.data?.error_description && (
                       <p className="text-red-600 text-sm">
                         {response.data.error_description}
                       </p>
                     )}
-                    {response.data?.error && (
+
+                    {/* Afficher les détails de l'erreur */}
+                    {(response.data?.error?.details || response.data?.details) && (
+                      <p className="text-red-600 text-sm">
+                        {response.data.error?.details || response.data.details}
+                      </p>
+                    )}
+
+                    {/* Afficher le code d'erreur */}
+                    {(response.data?.error || response.data?.error?.code) && (
                       <div className="mt-2">
                         <span className="text-xs font-medium text-red-800">Code erreur:</span>
                         <code className="ml-2 text-xs bg-red-100 text-red-800 px-2 py-1 rounded">
-                          {response.data.error}
+                          {getErrorCode(response.data.error)}
+                        </code>
+                      </div>
+                    )}
+
+                    {/* Afficher le chemin si disponible */}
+                    {response.data?.path && (
+                      <div className="mt-1">
+                        <span className="text-xs font-medium text-red-800">Chemin:</span>
+                        <code className="ml-2 text-xs bg-red-100 text-red-800 px-2 py-1 rounded">
+                          {response.data.path}
+                        </code>
+                      </div>
+                    )}
+
+                    {/* Afficher le timestamp si disponible */}
+                    {response.data?.timestamp && (
+                      <div className="mt-1">
+                        <span className="text-xs font-medium text-red-800">Timestamp:</span>
+                        <code className="ml-2 text-xs bg-red-100 text-red-800 px-2 py-1 rounded">
+                          {new Date(response.data.timestamp).toLocaleString()}
                         </code>
                       </div>
                     )}
@@ -375,6 +443,14 @@ export default function ResponseViewer({ response, loading }: ResponseViewerProp
                 <span className="text-gray-600">Reference:</span>
                 <code className="ml-2 bg-gray-100 px-2 py-1 rounded font-mono">
                   {response.data.reference}
+                </code>
+              </div>
+            )}
+            {response.data?.transfer_id && (
+              <div className="text-sm">
+                <span className="text-gray-600">Transfer ID:</span>
+                <code className="ml-2 bg-gray-100 px-2 py-1 rounded font-mono">
+                  {response.data.transfer_id}
                 </code>
               </div>
             )}

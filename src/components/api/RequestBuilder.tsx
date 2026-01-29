@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type Dispatch, type SetStateAction } from 'react'
+import { useState, type Dispatch, type SetStateAction, useEffect, useRef } from 'react'
 import { Endpoint } from '@/types/openapi'
 import { ChevronDown, ChevronUp, Plus, Trash2, Key, FileText } from 'lucide-react'
 
@@ -14,6 +14,7 @@ interface RequestBuilderProps {
   setHeaders: Dispatch<SetStateAction<Record<string, string>>>
   environment: 'sandbox' | 'production'
   accessToken?: string
+  apiKey?: string
 }
 
 export default function RequestBuilder({
@@ -26,6 +27,7 @@ export default function RequestBuilder({
   setHeaders,
   environment,
   accessToken,
+  apiKey,
 }: RequestBuilderProps) {
   const [activeTab, setActiveTab] = useState<'body' | 'params' | 'headers'>('body')
   const [expandedSections, setExpandedSections] = useState({
@@ -34,41 +36,69 @@ export default function RequestBuilder({
     body: true,
   })
 
+  // Références pour garder le focus sur les inputs
+  const inputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({})
+
+  // Sauvegarder l'état des sections développées dans localStorage
+  useEffect(() => {
+    const savedSections = localStorage.getItem('requestBuilder_expandedSections')
+    if (savedSections) {
+      try {
+        setExpandedSections(JSON.parse(savedSections))
+      } catch (e) {
+        console.error('Error parsing saved sections', e)
+      }
+    }
+  }, [])
+
+  // Sauvegarder quand les sections changent
+  useEffect(() => {
+    localStorage.setItem('requestBuilder_expandedSections', JSON.stringify(expandedSections))
+  }, [expandedSections])
+
   const toggleSection = (section: 'params' | 'headers' | 'body') => {
     setExpandedSections((prev) => ({
       ...prev,
-      [section]: !prev[section],
+      [section]: !prev[section]
     }))
   }
 
-  // Extraire les paramètres de l'endpoint
   const endpointParams = endpoint.parameters || []
 
-  // Headers par défaut
+  const endpointNeedsApiKey =
+    endpoint.path.includes('/api-key') ||
+    (endpoint.security || []).some((sec: any) => Object.prototype.hasOwnProperty.call(sec, 'apiKeyAuth'))
+
   const defaultHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
   }
 
-  if (accessToken) {
-    defaultHeaders['Authorization'] = `Bearer ${accessToken}`
-  }
+  if (accessToken) defaultHeaders['Authorization'] = `Bearer ${accessToken}`
+  if (endpointNeedsApiKey && apiKey) defaultHeaders['X-API-Key'] = apiKey
 
-  // Fusionner avec les headers personnalisés pour l'affichage
   const allHeaders = { ...defaultHeaders, ...headers }
 
   const handleQueryParamChange = (key: string, value: string) => {
     setQueryParams((prev) => ({
       ...prev,
-      [key]: value,
+      [key]: value
     }))
   }
 
   const addQueryParam = () => {
-    const newKey = `param${Object.keys(queryParams).length + 1}`
+    const newKey = `param${Date.now()}`
     setQueryParams((prev) => ({
       ...prev,
-      [newKey]: '',
+      [newKey]: ''
     }))
+
+    // Focus sur le nouveau champ après un court délai pour laisser le DOM se mettre à jour
+    setTimeout(() => {
+      const inputKey = document.querySelector(`input[data-param-key="${newKey}"]`) as HTMLInputElement
+      if (inputKey) {
+        inputKey.focus()
+      }
+    }, 50)
   }
 
   const removeQueryParam = (key: string) => {
@@ -77,34 +107,38 @@ export default function RequestBuilder({
     setQueryParams(newParams)
   }
 
-  const handleHeaderChange = (key: string, value: string) => {
-    // Ne pas permettre de modifier les headers par défaut
-    if (key === 'Content-Type' || key === 'Authorization') return
+  const isLockedHeader = (key: string) => ['Content-Type', 'Authorization', 'X-API-Key'].includes(key)
 
-    setHeaders((prev) => {
-      const newHeaders = { ...prev }
-      newHeaders[key] = value
-      return newHeaders
-    })
+  const handleHeaderChange = (key: string, value: string) => {
+    if (isLockedHeader(key)) return
+    setHeaders((prev) => ({
+      ...prev,
+      [key]: value
+    }))
   }
 
   const addHeader = () => {
-    const newKey = `header${Object.keys(headers).length + 1}`
-    setHeaders((prev) => {
-      const newHeaders = { ...prev }
-      newHeaders[newKey] = ''
-      return newHeaders
-    })
+    const newKey = `header${Date.now()}`
+    setHeaders((prev) => ({
+      ...prev,
+      [newKey]: ''
+    }))
+
+    // Focus sur le nouveau champ après un court délai
+    setTimeout(() => {
+      const inputKey = document.querySelector(`input[data-header-key="${newKey}"]`) as HTMLInputElement
+      if (inputKey) {
+        inputKey.focus()
+      }
+    }, 50)
   }
 
   const removeHeader = (key: string) => {
-    // Ne pas permettre de supprimer les headers par défaut
-    if (key === 'Content-Type' || key === 'Authorization') return
-
+    if (isLockedHeader(key)) return
     setHeaders((prev) => {
-      const newHeaders = { ...prev }
-      delete newHeaders[key]
-      return newHeaders
+      const copy = { ...prev }
+      delete copy[key]
+      return copy
     })
   }
 
@@ -112,9 +146,7 @@ export default function RequestBuilder({
     try {
       const parsed = JSON.parse(requestBody)
       setRequestBody(JSON.stringify(parsed, null, 2))
-    } catch {
-      // Si le JSON est invalide, ne rien faire
-    }
+    } catch { }
   }
 
   const validateJson = () => {
@@ -122,25 +154,55 @@ export default function RequestBuilder({
       JSON.parse(requestBody)
       return { valid: true, error: null as string | null }
     } catch (error: unknown) {
-      return {
-        valid: false,
-        error: error instanceof Error ? error.message : 'JSON invalide',
-      }
+      return { valid: false, error: error instanceof Error ? error.message : 'JSON invalide' }
     }
   }
 
   const jsonValidation = validateJson()
 
+  // Fonction pour gérer le changement de clé de paramètre
+  const handleParamKeyChange = (oldKey: string, newKey: string, currentValue: string) => {
+    if (oldKey === newKey) return
+
+    const newParams = { ...queryParams }
+    delete newParams[oldKey]
+    newParams[newKey] = currentValue
+    setQueryParams(newParams)
+
+    // Focus sur le champ valeur après le changement de clé
+    setTimeout(() => {
+      const inputValue = document.querySelector(`input[data-param-value="${newKey}"]`) as HTMLInputElement
+      if (inputValue) {
+        inputValue.focus()
+      }
+    }, 50)
+  }
+
+  // Fonction pour gérer le changement de clé de header
+  const handleHeaderKeyChange = (oldKey: string, newKey: string, currentValue: string) => {
+    if (oldKey === newKey || isLockedHeader(oldKey)) return
+
+    const newHeaders = { ...headers }
+    delete newHeaders[oldKey]
+    newHeaders[newKey] = currentValue
+    setHeaders(newHeaders)
+
+    // Focus sur le champ valeur après le changement de clé
+    setTimeout(() => {
+      const inputValue = document.querySelector(`input[data-header-value="${newKey}"]`) as HTMLInputElement
+      if (inputValue) {
+        inputValue.focus()
+      }
+    }, 50)
+  }
+
   return (
     <div className="bg-white rounded-lg shadow">
-      {/* Tabs */}
       <div className="border-b">
         <div className="flex">
           <button
             onClick={() => setActiveTab('body')}
-            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'body'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'body' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
           >
             <FileText className="h-4 w-4 inline mr-2" />
@@ -149,9 +211,7 @@ export default function RequestBuilder({
 
           <button
             onClick={() => setActiveTab('params')}
-            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'params'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'params' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
           >
             <Key className="h-4 w-4 inline mr-2" />
@@ -165,9 +225,7 @@ export default function RequestBuilder({
 
           <button
             onClick={() => setActiveTab('headers')}
-            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'headers'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'headers' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
           >
             <Key className="h-4 w-4 inline mr-2" />
@@ -180,17 +238,24 @@ export default function RequestBuilder({
       </div>
 
       <div className="p-4">
-        {/* Body Tab */}
         {activeTab === 'body' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <button onClick={() => toggleSection('body')} className="text-gray-500 hover:text-gray-700">
+                <button
+                  onClick={() => toggleSection('body')}
+                  className="text-gray-500 hover:text-gray-700"
+                  type="button"
+                >
                   {expandedSections.body ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
                 </button>
                 <h4 className="font-medium">Request Body</h4>
               </div>
-              <button onClick={formatJson} className="text-sm text-blue-600 hover:text-blue-800">
+              <button
+                onClick={formatJson}
+                className="text-sm text-blue-600 hover:text-blue-800"
+                type="button"
+              >
                 Formatter JSON
               </button>
             </div>
@@ -207,7 +272,6 @@ export default function RequestBuilder({
                         placeholder='{"key": "value"}'
                         spellCheck={false}
                       />
-
                       {requestBody && (
                         <div className="absolute top-2 right-2">
                           <span
@@ -225,11 +289,6 @@ export default function RequestBuilder({
                         Erreur JSON: {jsonValidation.error}
                       </div>
                     )}
-
-                    <div className="text-xs text-gray-500 space-y-1">
-                      <p>Format: JSON</p>
-                      {endpoint.requestBody?.required && <p className="text-red-600">⚠ Ce body est requis</p>}
-                    </div>
                   </div>
                 ) : (
                   <div className="text-center py-8 text-gray-500 bg-gray-50 rounded-md">
@@ -242,17 +301,24 @@ export default function RequestBuilder({
           </div>
         )}
 
-        {/* Query Parameters Tab */}
         {activeTab === 'params' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <button onClick={() => toggleSection('params')} className="text-gray-500 hover:text-gray-700">
+                <button
+                  onClick={() => toggleSection('params')}
+                  className="text-gray-500 hover:text-gray-700"
+                  type="button"
+                >
                   {expandedSections.params ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
                 </button>
                 <h4 className="font-medium">Query Parameters</h4>
               </div>
-              <button onClick={addQueryParam} className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800">
+              <button
+                onClick={addQueryParam}
+                className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800"
+                type="button"
+              >
                 <Plus className="h-4 w-4" />
                 Ajouter
               </button>
@@ -260,11 +326,11 @@ export default function RequestBuilder({
 
             {expandedSections.params && (
               <div className="space-y-3">
-                {/* Paramètres définis dans l'OpenAPI */}
+                {/* Paramètres définis dans l'API */}
                 {endpointParams
                   .filter((param: any) => param.in === 'query')
                   .map((param: any, index: number) => (
-                    <div key={`api-param-${index}`} className="space-y-1">
+                    <div key={`api-param-${param.name}-${index}`} className="space-y-1">
                       <div className="flex items-center justify-between">
                         <div>
                           <span className="font-medium text-sm">{param.name}</span>
@@ -279,7 +345,7 @@ export default function RequestBuilder({
                         type="text"
                         value={queryParams[param.name] || ''}
                         onChange={(e) => handleQueryParamChange(param.name, e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md text-sm"
+                        className="w-full px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         placeholder={param.description || `Valeur pour ${param.name}`}
                       />
 
@@ -291,35 +357,37 @@ export default function RequestBuilder({
                 {Object.entries(queryParams)
                   .filter(([key]) => !endpointParams.some((p: any) => p.name === key))
                   .map(([key, value], index) => (
-                    <div key={`custom-param-${index}`} className="flex items-center gap-2">
+                    <div key={`custom-param-${key}-${index}`} className="flex items-center gap-2">
                       <input
                         type="text"
                         value={key}
-                        onChange={(e) => {
-                          const newParams = { ...queryParams }
-                          delete newParams[key]
-                          newParams[e.target.value] = value
-                          setQueryParams(newParams)
-                        }}
-                        className="flex-1 px-3 py-2 border rounded-md text-sm"
+                        onChange={(e) => handleParamKeyChange(key, e.target.value, value)}
+                        className="flex-1 px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         placeholder="Clé"
+                        data-param-key={key}
                       />
                       <input
                         type="text"
                         value={value}
                         onChange={(e) => handleQueryParamChange(key, e.target.value)}
-                        className="flex-1 px-3 py-2 border rounded-md text-sm"
+                        className="flex-1 px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         placeholder="Valeur"
+                        data-param-value={key}
                       />
-                      <button onClick={() => removeQueryParam(key)} className="p-2 text-red-600 hover:bg-red-50 rounded-md">
+                      <button
+                        onClick={() => removeQueryParam(key)}
+                        className="p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                        type="button"
+                        title="Supprimer ce paramètre"
+                      >
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
                   ))}
 
-                {endpointParams.filter((p: any) => p.in === 'query').length === 0 && Object.keys(queryParams).length === 0 && (
-                  <div className="text-center py-6 text-gray-500 bg-gray-50 rounded-md">
-                    <p>Aucun paramètre de requête défini pour cet endpoint</p>
+                {Object.keys(queryParams).filter(k => !endpointParams.some((p: any) => p.name === k)).length === 0 && (
+                  <div className="text-center py-4 text-gray-500">
+                    <p className="text-sm">Aucun paramètre personnalisé. Cliquez sur "Ajouter" pour en créer un.</p>
                   </div>
                 )}
               </div>
@@ -327,21 +395,24 @@ export default function RequestBuilder({
           </div>
         )}
 
-        {/* Headers Tab */}
         {activeTab === 'headers' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <button onClick={() => toggleSection('headers')} className="text-gray-500 hover:text-gray-700">
-                  {expandedSections.headers ? (
-                    <ChevronUp className="h-5 w-5" />
-                  ) : (
-                    <ChevronDown className="h-5 w-5" />
-                  )}
+                <button
+                  onClick={() => toggleSection('headers')}
+                  className="text-gray-500 hover:text-gray-700"
+                  type="button"
+                >
+                  {expandedSections.headers ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
                 </button>
                 <h4 className="font-medium">Headers</h4>
               </div>
-              <button onClick={addHeader} className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800">
+              <button
+                onClick={addHeader}
+                className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800"
+                type="button"
+              >
                 <Plus className="h-4 w-4" />
                 Ajouter
               </button>
@@ -356,6 +427,9 @@ export default function RequestBuilder({
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-sm">{key}</span>
                         <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">par défaut</span>
+                        {isLockedHeader(key) && (
+                          <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">verrouillé</span>
+                        )}
                       </div>
                     </div>
                     <input
@@ -369,35 +443,40 @@ export default function RequestBuilder({
 
                 {/* Headers personnalisés */}
                 {Object.entries(headers).map(([key, value], index) => (
-                  <div key={`custom-header-${index}`} className="flex items-center gap-2">
+                  <div key={`custom-header-${key}-${index}`} className="flex items-center gap-2">
                     <input
                       type="text"
                       value={key}
-                      onChange={(e) => {
-                        const newHeaders = { ...headers }
-                        delete newHeaders[key]
-                        newHeaders[e.target.value] = value
-                        setHeaders(newHeaders)
-                      }}
-                      className="flex-1 px-3 py-2 border rounded-md text-sm"
+                      onChange={(e) => handleHeaderKeyChange(key, e.target.value, value)}
+                      disabled={isLockedHeader(key)}
+                      className={`flex-1 px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${isLockedHeader(key) ? 'bg-gray-50' : ''}`}
                       placeholder="Clé"
+                      data-header-key={key}
                     />
                     <input
                       type="text"
                       value={value}
                       onChange={(e) => handleHeaderChange(key, e.target.value)}
-                      className="flex-1 px-3 py-2 border rounded-md text-sm"
+                      disabled={isLockedHeader(key)}
+                      className={`flex-1 px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${isLockedHeader(key) ? 'bg-gray-50' : ''}`}
                       placeholder="Valeur"
+                      data-header-value={key}
                     />
-                    <button onClick={() => removeHeader(key)} className="p-2 text-red-600 hover:bg-red-50 rounded-md">
+                    <button
+                      onClick={() => removeHeader(key)}
+                      className="p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                      type="button"
+                      title="Supprimer ce header"
+                      disabled={isLockedHeader(key)}
+                    >
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
                 ))}
 
                 {Object.keys(headers).length === 0 && (
-                  <div className="text-center py-6 text-gray-500 bg-gray-50 rounded-md">
-                    <p>Aucun header personnalisé ajouté</p>
+                  <div className="text-center py-4 text-gray-500">
+                    <p className="text-sm">Aucun header personnalisé. Cliquez sur "Ajouter" pour en créer un.</p>
                   </div>
                 )}
               </div>

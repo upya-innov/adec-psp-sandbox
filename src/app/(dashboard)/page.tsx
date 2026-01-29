@@ -5,7 +5,6 @@ import { EndpointCard } from '@/components/api/endpoint-card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { loadOpenAPISpec, getAllEndpoints, getEndpointsByTag } from '@/lib/openapi-parser';
 import { Endpoint } from '@/types/openapi';
 import {
@@ -17,7 +16,7 @@ import {
   Globe,
   Shield,
   Terminal,
-  FileText
+  FileText,
 } from 'lucide-react';
 import ApiTester from '@/components/api/ApiTester';
 
@@ -30,11 +29,12 @@ export default function DashboardPage() {
   const [selectedEndpoint, setSelectedEndpoint] = useState<Endpoint | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Nouveaux états pour l'authentification
-  const [apiKey, setApiKey] = useState<string>('');
-  const [apiSecret, setApiSecret] = useState<string>('');
+  // ✅ Nouveau modèle: login email/password + X-API-Key (pour endpoints /api-key)
+  const [email, setEmail] = useState<string>('owner@mycompany.com');
+  const [password, setPassword] = useState<string>('');
+  const [apiKey, setApiKey] = useState<string>(''); // X-API-Key
   const [accessToken, setAccessToken] = useState<string>('');
-  const [environment, setEnvironment] = useState<'sandbox' | 'production'>('sandbox');
+  const [environment, setEnvironment] = useState<'sandbox' | 'production'>('sandbox'); // conservé pour UI
 
   useEffect(() => {
     async function loadSpec() {
@@ -44,54 +44,54 @@ export default function DashboardPage() {
         const allEndpoints = getAllEndpoints(data);
         setEndpoints(allEndpoints);
         setFilteredEndpoints(allEndpoints);
-
-        // Sélectionner le premier endpoint par défaut
-        if (allEndpoints.length > 0) {
-          setSelectedEndpoint(allEndpoints[0]);
-        }
+        if (allEndpoints.length > 0) setSelectedEndpoint(allEndpoints[0]);
       } catch (error) {
         console.error('Failed to load API spec:', error);
       } finally {
         setLoading(false);
       }
     }
-
     loadSpec();
   }, []);
 
   // Charger depuis localStorage
   useEffect(() => {
-    const savedApiKey = localStorage.getItem('adec_api_key');
-    const savedApiSecret = localStorage.getItem('adec_api_secret');
-    const savedToken = localStorage.getItem('adec_access_token');
-    const savedEnv = localStorage.getItem('adec_environment');
+    const savedEmail = localStorage.getItem('psp_email');
+    const savedApiKey = localStorage.getItem('psp_api_key');
+    const savedToken = localStorage.getItem('psp_access_token');
+    const savedEnv = localStorage.getItem('psp_environment');
 
+    if (savedEmail) setEmail(savedEmail);
     if (savedApiKey) setApiKey(savedApiKey);
-    if (savedApiSecret) setApiSecret(savedApiSecret);
     if (savedToken) setAccessToken(savedToken);
     if (savedEnv === 'production' || savedEnv === 'sandbox') setEnvironment(savedEnv);
   }, []);
 
   // Sauvegarder dans localStorage
   useEffect(() => {
-    if (apiKey) localStorage.setItem('adec_api_key', apiKey);
-    if (apiSecret) localStorage.setItem('adec_api_secret', apiSecret);
-    if (accessToken) localStorage.setItem('adec_access_token', accessToken);
-    localStorage.setItem('adec_environment', environment);
-  }, [apiKey, apiSecret, accessToken, environment]);
+    localStorage.setItem('psp_email', email);
+    localStorage.setItem('psp_environment', environment);
+
+    if (apiKey) localStorage.setItem('psp_api_key', apiKey);
+    else localStorage.removeItem('psp_api_key');
+
+    if (accessToken) localStorage.setItem('psp_access_token', accessToken);
+    else localStorage.removeItem('psp_access_token');
+  }, [email, apiKey, accessToken, environment]);
 
   useEffect(() => {
     let filtered = endpoints;
 
-    if (selectedTag !== 'all') {
+    if (selectedTag !== 'all' && spec) {
       filtered = getEndpointsByTag(spec, selectedTag);
     }
 
     if (searchQuery) {
-      filtered = filtered.filter(endpoint =>
-        endpoint.path.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        endpoint.summary.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        endpoint.description.toLowerCase().includes(searchQuery.toLowerCase())
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter((endpoint) =>
+        (endpoint.path || '').toLowerCase().includes(q) ||
+        (endpoint.summary || '').toLowerCase().includes(q) ||
+        (endpoint.description || '').toLowerCase().includes(q)
       );
     }
 
@@ -102,36 +102,49 @@ export default function DashboardPage() {
     setSelectedEndpoint(endpoint);
   };
 
+  // ✅ Auth: POST /auth/login via proxy (évite CORS)
   const handleAuthentication = async () => {
     try {
       const response = await fetch('/api/sandbox/proxy', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          endpoint: '/auth/token',
+          endpoint: '/auth/login',
           method: 'POST',
-          body: {
-            api_key: apiKey,
-            api_secret: apiSecret,
-          },
-          environment,
+          headers: {}, // tu peux ajouter des headers custom si besoin
+          body: { email, password },
+          environment, // gardé pour UI, mais ton proxy doit ignorer ou mapper
         }),
       });
 
-      const data = await response.json();
-      if (data.access_token) {
-        setAccessToken(data.access_token);
-        alert('Authentification réussie ! Token obtenu.');
-      } else {
-        alert('Échec de l\'authentification. Vérifiez vos credentials.');
+      const result = await response.json();
+
+      // ✅ Supporte les 2 formats:
+      // 1) { success, data: { access_token } }
+      // 2) { access_token }
+      const token =
+        result?.data?.access_token ||
+        result?.access_token;
+
+      if (!token) {
+        console.error('Login response:', result);
+        alert("Échec: access_token introuvable dans la réponse.");
+        return;
       }
+
+      setAccessToken(token);
+
+      // Optionnel: stocker refresh_token / expires_in si tu veux
+      // const refresh = result?.data?.refresh_token;
+      // const expiresIn = result?.data?.expires_in;
+
+      alert('Authentification réussie ✅ Token obtenu.');
     } catch (error) {
       console.error('Authentication failed:', error);
-      alert('Erreur lors de l\'authentification.');
+      alert("Erreur lors de l’authentification.");
     }
   };
+
 
   const tags = spec?.tags || [];
 
@@ -145,19 +158,13 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* En-tête */}
       <div className="bg-white border-b border-gray-200">
         <div className="container mx-auto px-6 py-4">
           <div className="mb-8">
-            <h1 className="text-3xl font-bold tracking-tight">
-              {spec?.info.title}
-            </h1>
-            <p className="text-gray-600 mt-2">
-              {spec?.info.description.split('\n')[0]}
-            </p>
+            <h1 className="text-3xl font-bold tracking-tight">{spec?.info?.title || 'API Dashboard'}</h1>
+            <p className="text-gray-600 mt-2">{spec?.info?.description?.split('\n')?.[0] || ''}</p>
           </div>
 
-          {/* Section d'authentification */}
           <div className="mb-6 bg-white rounded-lg shadow p-6">
             <h2 className="text-xl font-semibold mb-4">🔐 Configuration API</h2>
 
@@ -172,27 +179,30 @@ export default function DashboardPage() {
                   <option value="sandbox">Sandbox</option>
                   <option value="production">Production</option>
                 </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Base URL: <code>https://psp-api.fineopay.com</code>
+                </p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">API Key</label>
+                <label className="block text-sm font-medium mb-2">Email</label>
                 <input
-                  type="password"
+                  type="text"
                   className="w-full border rounded-md p-2 text-sm"
-                  placeholder="Votre clé API"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="owner@mycompany.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">API Secret</label>
+                <label className="block text-sm font-medium mb-2">Mot de passe</label>
                 <input
                   type="password"
                   className="w-full border rounded-md p-2 text-sm"
-                  placeholder="Votre secret API"
-                  value={apiSecret}
-                  onChange={(e) => setApiSecret(e.target.value)}
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
 
@@ -209,22 +219,36 @@ export default function DashboardPage() {
               </div>
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">X-API-Key (pour endpoints /api-key)</label>
+                <input
+                  type="password"
+                  className="w-full border rounded-md p-2 text-sm"
+                  placeholder="Votre X-API-Key"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                />
+              </div>
+            </div>
+
             <div className="flex gap-3">
               <button
                 onClick={handleAuthentication}
                 className="bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 text-sm"
               >
-                Obtenir un Token
+                Se connecter (obtenir token)
               </button>
 
               <button
                 onClick={() => {
+                  setEmail('owner@mycompany.com');
+                  setPassword('');
                   setApiKey('');
-                  setApiSecret('');
                   setAccessToken('');
-                  localStorage.removeItem('adec_api_key');
-                  localStorage.removeItem('adec_api_secret');
-                  localStorage.removeItem('adec_access_token');
+                  localStorage.removeItem('psp_email');
+                  localStorage.removeItem('psp_api_key');
+                  localStorage.removeItem('psp_access_token');
                 }}
                 className="border border-gray-300 px-4 py-2 rounded-md hover:bg-gray-50 text-sm"
               >
@@ -234,7 +258,11 @@ export default function DashboardPage() {
               {accessToken && (
                 <span className="flex items-center text-green-600 text-sm">
                   <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    <path
+                      fillRule="evenodd"
+                      d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                      clipRule="evenodd"
+                    />
                   </svg>
                   Authentifié
                 </span>
@@ -244,7 +272,6 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Contenu principal */}
       <div className="container mx-auto px-6 py-6">
         <Tabs defaultValue="endpoints" className="space-y-6">
           <TabsList className="grid w-full grid-cols-3">
@@ -282,6 +309,7 @@ export default function DashboardPage() {
                   <Filter className="h-4 w-4 mr-2" />
                   Tous
                 </Button>
+
                 {tags.map((tag: any) => (
                   <Button
                     key={tag.name}
@@ -291,7 +319,7 @@ export default function DashboardPage() {
                   >
                     {tag.name === 'Payments' && <CreditCard className="h-4 w-4 mr-2" />}
                     {tag.name === 'Transfers' && <Send className="h-4 w-4 mr-2" />}
-                    {tag.name === 'Utilities' && <Globe className="h-4 w-4 mr-2" />}
+                    {tag.name === 'Currencies' && <Globe className="h-4 w-4 mr-2" />}
                     {tag.name === 'Authentication' && <Shield className="h-4 w-4 mr-2" />}
                     {tag.name}
                   </Button>
@@ -317,7 +345,6 @@ export default function DashboardPage() {
                 environment={environment}
                 accessToken={accessToken}
                 apiKey={apiKey}
-                apiSecret={apiSecret}
               />
             ) : (
               <div className="text-center py-12 text-gray-500">
@@ -330,57 +357,34 @@ export default function DashboardPage() {
           <TabsContent value="documentation">
             <div className="prose max-w-none">
               <h2>Getting Started</h2>
+
               <h3>Authentication</h3>
               <p>
-                To use the ADEC PSP API, you need to authenticate using your API key and secret.
-                Obtain an access token by calling the <code>/auth/token</code> endpoint.
+                Authenticate with <code>POST /auth/login</code> using email/password to receive an{' '}
+                <code>access_token</code>.
               </p>
 
-              <h3>API Environments</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 my-4">
-                <div className="border rounded-lg p-4">
-                  <h4 className="font-semibold mb-2">Sandbox</h4>
-                  <code className="text-sm">https://api.sandbox.adecsa.com/v1</code>
-                  <p className="text-sm text-gray-600 mt-2">
-                    Use for testing and development
-                  </p>
-                </div>
-                <div className="border rounded-lg p-4">
-                  <h4 className="font-semibold mb-2">Production</h4>
-                  <code className="text-sm">https://api.adecsa.com/v1</code>
-                  <p className="text-sm text-gray-600 mt-2">
-                    Use for live transactions
-                  </p>
-                </div>
+              <h3>API Base URL</h3>
+              <div className="border rounded-lg p-4">
+                <code className="text-sm">https://psp-api.fineopay.com</code>
               </div>
-
-              <h3>Webhooks</h3>
-              <p>
-                The API uses webhooks to notify your application about payment and transfer status changes.
-                All webhooks include an <code>x-secret-key</code> header for verification.
-              </p>
 
               <h3>Usage Example</h3>
               <pre className="bg-gray-50 p-4 rounded-lg overflow-x-auto text-sm">
-                {`// Authentication
-POST /auth/token
+                {`// Login
+POST /auth/login
 {
-  "api_key": "your_api_key",
-  "api_secret": "your_api_secret"
+  "email": "owner@mycompany.com",
+  "password": "SecurePassword123!"
 }
 
-// Payment example
-POST /payments/direct
-{
-  "transaction_id": "TX-123456",
-  "amount": 1000,
-  "currency": "XOF",
-  "country": "CI",
-  "channel": "orange-money",
-  "customer": {
-    "phone_number": "+2250700000000"
-  }
-}`}
+// Initiate payment with JWT
+POST /payments
+Authorization: Bearer <access_token>
+
+// Initiate payment with API Key
+POST /payments/initiate
+X-API-Key: <api_key>`}
               </pre>
             </div>
           </TabsContent>

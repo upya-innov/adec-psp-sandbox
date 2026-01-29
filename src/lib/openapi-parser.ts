@@ -1,58 +1,49 @@
+// src/lib/openapi-parser.ts
 import { OpenAPISpec, Endpoint, Operation } from '@/types/openapi';
 
 let cachedSpec: OpenAPISpec | null = null;
 
-// Type guard pour vérifier si c'est une opération valide
+// Type guard: Operation OpenAPI
 function isOperation(obj: any): obj is Operation {
-  return obj && typeof obj === 'object' && 'responses' in obj;
+  return !!obj && typeof obj === 'object' && 'responses' in obj;
 }
 
-// Type guard pour vérifier si c'est un PathItem
+// Type guard: PathItem (objet)
 function isPathItem(obj: any): obj is Record<string, any> {
-  return obj && typeof obj === 'object';
+  return !!obj && typeof obj === 'object';
 }
 
 export async function loadOpenAPISpec(): Promise<OpenAPISpec> {
-  if (cachedSpec) {
-    return cachedSpec;
-  }
+  if (cachedSpec) return cachedSpec;
 
-  try {
-    const response = await fetch('/openapi.json');
-    if (!response.ok) {
-      throw new Error('Failed to load OpenAPI spec');
-    }
-    const spec = await response.json() as OpenAPISpec;
-    cachedSpec = spec;
-    return spec;
-  } catch (error) {
-    console.error('Error loading OpenAPI spec:', error);
-    throw error;
-  }
+  const response = await fetch('/openapi.json');
+  if (!response.ok) throw new Error('Failed to load OpenAPI spec');
+
+  const spec = (await response.json()) as OpenAPISpec;
+  cachedSpec = spec;
+  return spec;
 }
 
 export function getAllEndpoints(spec: OpenAPISpec): Endpoint[] {
   const endpoints: Endpoint[] = [];
+  const httpMethods = new Set(['get', 'post', 'put', 'delete', 'patch', 'options', 'head', 'trace']);
 
-  Object.entries(spec.paths).forEach(([path, pathItem]) => {
+  Object.entries(spec.paths || {}).forEach(([path, pathItem]) => {
     if (!isPathItem(pathItem)) return;
 
     Object.entries(pathItem).forEach(([method, operation]) => {
-      // Vérifier si c'est une méthode HTTP valide
-      const httpMethods = ['get', 'post', 'put', 'delete', 'patch', 'options', 'head'];
-      if (!httpMethods.includes(method.toLowerCase()) || !isOperation(operation)) {
-        return;
-      }
+      if (!httpMethods.has(method.toLowerCase())) return;
+      if (!isOperation(operation)) return;
 
       endpoints.push({
         path,
         method: method.toUpperCase(),
-        summary: operation.summary || '',
+        summary: operation.summary || `${method.toUpperCase()} ${path}`,
         description: operation.description || '',
-        tags: operation.tags || [],
+        tags: operation.tags?.length ? operation.tags : ['Untagged'],
         parameters: operation.parameters || [],
         requestBody: operation.requestBody,
-        responses: operation.responses,
+        responses: operation.responses || {},
         security: operation.security,
       });
     });
@@ -61,14 +52,13 @@ export function getAllEndpoints(spec: OpenAPISpec): Endpoint[] {
   return endpoints;
 }
 
+// ✅ AJOUT: filtrer les endpoints par tag (corrige ton erreur)
 export function getEndpointsByTag(spec: OpenAPISpec, tag: string): Endpoint[] {
-  return getAllEndpoints(spec).filter(endpoint =>
-    endpoint.tags.includes(tag)
-  );
+  return getAllEndpoints(spec).filter((endpoint) => endpoint.tags?.includes(tag));
 }
 
 export function getEndpointByPath(spec: OpenAPISpec, path: string, method: string): Endpoint | undefined {
   return getAllEndpoints(spec).find(
-    endpoint => endpoint.path === path && endpoint.method === method.toUpperCase()
+    (endpoint) => endpoint.path === path && endpoint.method === method.toUpperCase()
   );
 }
