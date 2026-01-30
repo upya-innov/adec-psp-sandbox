@@ -393,7 +393,7 @@
         }
       }
     },
-    "/transfers/api-key": {
+    "/transfers/initiate": {
       "post": {
         "tags": ["Transfers"],
         "summary": "Initiate Transfer (API Key)",

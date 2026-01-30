@@ -188,7 +188,7 @@ export default function Documentation() {
               </div>
               <ul className="space-y-2 text-sm text-gray-700">
                 <li className="flex items-center justify-between">
-                  <span>POST /transfers/api-key</span>
+                  <span>POST /transfers/initiate</span>
                   <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded">POST</span>
                 </li>
                 <li className="flex items-center justify-between">
@@ -488,11 +488,11 @@ Body: {
 
             <div className="space-y-4">
               <div>
-                <h5 className="font-medium text-gray-700 mb-2">Initier un transfert (POST /transfers/api-key)</h5>
+                <h5 className="font-medium text-gray-700 mb-2">Initier un transfert (POST /transfers/initiate)</h5>
                 <div className="bg-gray-900 text-gray-100 rounded-lg p-4">
                   <pre className="text-sm overflow-x-auto">
                     {`// Requête - Exemple pour le Sénégal avec Wave
-POST https://psp-api.fineopay.com/transfers/api-key
+POST https://psp-api.fineopay.com/transfers/initiate
 Headers: {
   "X-API-Key": "psp_key_xxxxxxxxxxxxxxxxxxxxxxxx",
   "Content-Type": "application/json"

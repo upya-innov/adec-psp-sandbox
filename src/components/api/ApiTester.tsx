@@ -287,7 +287,7 @@ export default function ApiTester({
           product: 'Premium Subscription',
         },
       };
-    } else if (endpoint.path === '/transfers' || endpoint.path === '/transfers/api-key') {
+    } else if (endpoint.path === '/transfers' || endpoint.path === '/transfers/initiate') {
       example = {
         transfer_id: `TR-${Date.now()}`,
         amount: 2500,
