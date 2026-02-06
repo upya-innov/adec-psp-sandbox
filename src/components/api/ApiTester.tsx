@@ -27,7 +27,7 @@ export default function ApiTester({
   const [error, setError] = useState<string>('');
   const [requestHistory, setRequestHistory] = useState<any[]>([]);
 
-  const baseUrl = 'https://psp-api.fineopay.com';
+  const baseUrl = 'https://psp-api.fineopay.com/api/v1';
 
   // Fonction pour déterminer le type d'authentification requis
   const getAuthType = (endpoint: Endpoint): 'jwt' | 'apiKey' | 'none' => {

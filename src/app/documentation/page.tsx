@@ -373,7 +373,7 @@ export default function Documentation() {
                 <div className="bg-gray-900 text-gray-100 rounded-lg p-4">
                   <pre className="text-sm overflow-x-auto">
                     {`// Requête - Exemple pour la Côte d'Ivoire avec Orange Money
-POST https://psp-api.fineopay.com/payments/initiate
+POST https://psp-api.fineopay.com/api/v1/payments/initiate
 Headers: {
   "X-API-Key": "psp_key_xxxxxxxxxxxxxxxxxxxxxxxx",
   "Content-Type": "application/json"
@@ -403,7 +403,7 @@ Body: {
   "status": "pending",
   "amount": 1000,
   "currency": "XOF",
-  "payment_url": "https://psp-api.fineopay.com/pay/TX-1705234567890",
+  "payment_url": "https://psp-api.fineopay.com/api/v1/pay/TX-1705234567890",
   "expires_at": "2024-01-01T12:00:00Z",
   "created_at": "2024-01-01T11:00:00Z"
 }`}
@@ -416,7 +416,7 @@ Body: {
                 <div className="bg-gray-900 text-gray-100 rounded-lg p-4">
                   <pre className="text-sm overflow-x-auto">
                     {`// Requête avec filtres
-GET https://psp-api.fineopay.com/payments?status=completed&limit=10&offset=0&start_date=2024-01-01&end_date=2024-01-31
+GET https://psp-api.fineopay.com/api/v1/payments?status=completed&limit=10&offset=0&start_date=2024-01-01&end_date=2024-01-31
 Headers: {
   "X-API-Key": "psp_key_xxxxxxxxxxxxxxxxxxxxxxxx"
 }
@@ -454,7 +454,7 @@ Headers: {
                 <div className="bg-gray-900 text-gray-100 rounded-lg p-4">
                   <pre className="text-sm overflow-x-auto">
                     {`// Requête
-PATCH https://psp-api.fineopay.com/payments/TX-1705234567890/cancel
+PATCH https://psp-api.fineopay.com/api/v1/payments/TX-1705234567890/cancel
 Headers: {
   "X-API-Key": "psp_key_xxxxxxxxxxxxxxxxxxxxxxxx",
   "Content-Type": "application/json"
@@ -492,7 +492,7 @@ Body: {
                 <div className="bg-gray-900 text-gray-100 rounded-lg p-4">
                   <pre className="text-sm overflow-x-auto">
                     {`// Requête - Exemple pour le Sénégal avec Wave
-POST https://psp-api.fineopay.com/transfers/initiate
+POST https://psp-api.fineopay.com/api/v1/transfers/initiate
 Headers: {
   "X-API-Key": "psp_key_xxxxxxxxxxxxxxxxxxxxxxxx",
   "Content-Type": "application/json"
@@ -536,7 +536,7 @@ Body: {
                 <div className="bg-gray-900 text-gray-100 rounded-lg p-4">
                   <pre className="text-sm overflow-x-auto">
                     {`// Requête avec filtres
-GET https://psp-api.fineopay.com/transfers?status=completed&limit=10&offset=0&recipient_phone=221770000000
+GET https://psp-api.fineopay.com/api/v1/transfers?status=completed&limit=10&offset=0&recipient_phone=221770000000
 Headers: {
   "X-API-Key": "psp_key_xxxxxxxxxxxxxxxxxxxxxxxx"
 }
@@ -583,7 +583,7 @@ Headers: {
                 <div className="bg-gray-900 text-gray-100 rounded-lg p-4">
                   <pre className="text-sm overflow-x-auto">
                     {`// Requête
-GET https://psp-api.fineopay.com/countries
+GET https://psp-api.fineopay.com/api/v1/countries
 
 // Réponse (200 OK)
 {
@@ -603,7 +603,7 @@ GET https://psp-api.fineopay.com/countries
                 <div className="bg-gray-900 text-gray-100 rounded-lg p-4">
                   <pre className="text-sm overflow-x-auto">
                     {`// Requête
-GET https://psp-api.fineopay.com/channels
+GET https://psp-api.fineopay.com/api/v1/channels
 
 // Réponse (200 OK)
 {
@@ -623,7 +623,7 @@ GET https://psp-api.fineopay.com/channels
                 <div className="bg-gray-900 text-gray-100 rounded-lg p-4">
                   <pre className="text-sm overflow-x-auto">
                     {`// Requête
-GET https://psp-api.fineopay.com/currencies
+GET https://psp-api.fineopay.com/api/v1/currencies
 
 // Réponse (200 OK)
 {

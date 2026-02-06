@@ -340,7 +340,7 @@ export default function HomePage() {
                             <div className="mt-2 text-xs text-gray-600 space-y-1">
                               <p className="flex items-center gap-1">
                                 <span className="font-medium">Base URL:</span>
-                                <code className="bg-gray-100 px-1.5 py-0.5 rounded">https://psp-api.fineopay.com</code>
+                                <code className="bg-gray-100 px-1.5 py-0.5 rounded">https://psp-api.fineopay.com/api/v1</code>
                               </p>
                               <p className={`flex items-center gap-1 ${environment === 'sandbox' ? 'text-yellow-600' : 'text-green-600'}`}>
                                 <span className="font-medium">Statut:</span>

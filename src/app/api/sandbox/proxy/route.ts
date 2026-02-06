@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     } = payload;
 
     // ✅ Base URL unique FineoPay
-    const baseUrl = 'https://psp-api.fineopay.com';
+    const baseUrl = 'https://psp-api.fineopay.com/api/v1';
 
     // Construire l’URL avec query params
     const url = new URL(`${baseUrl}${endpoint}`);

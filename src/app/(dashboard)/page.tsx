@@ -180,7 +180,7 @@ export default function DashboardPage() {
                   <option value="production">Production</option>
                 </select>
                 <p className="text-xs text-gray-500 mt-1">
-                  Base URL: <code>https://psp-api.fineopay.com</code>
+                  Base URL: <code>https://psp-api.fineopay.com/api/v1</code>
                 </p>
               </div>
 
@@ -366,7 +366,7 @@ export default function DashboardPage() {
 
               <h3>API Base URL</h3>
               <div className="border rounded-lg p-4">
-                <code className="text-sm">https://psp-api.fineopay.com</code>
+                <code className="text-sm">https://psp-api.fineopay.com/api/v1</code>
               </div>
 
               <h3>Usage Example</h3>
