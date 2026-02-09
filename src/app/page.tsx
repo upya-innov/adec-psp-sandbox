@@ -19,6 +19,7 @@ import {
   ChevronUp,
   ChevronDown,
 } from 'lucide-react';
+import { apiFetch } from '@/lib/api-client';
 
 export default function HomePage() {
   const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
@@ -114,12 +115,10 @@ export default function HomePage() {
     showMessage('info', 'Test de l\'API Key en cours...');
 
     try {
-      const response = await fetch('https://psp-api.fineopay.com/health', {
+      const response = await apiFetch({
+        endpoint: '/health',
         method: 'GET',
-        headers: {
-          'X-API-Key': apiKey,
-          'Content-Type': 'application/json',
-        },
+        headers: { 'x-api-key': apiKey }, // ou rien si /health est public
       });
 
       if (response.ok) {
