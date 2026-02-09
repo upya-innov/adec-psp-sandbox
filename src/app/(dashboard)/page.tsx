@@ -34,7 +34,7 @@ export default function DashboardPage() {
   const [password, setPassword] = useState<string>('');
   const [apiKey, setApiKey] = useState<string>(''); // X-API-Key
   const [accessToken, setAccessToken] = useState<string>('');
-  const [environment, setEnvironment] = useState<'sandbox' | 'production'>('sandbox'); // conservé pour UI
+  const [environment, setEnvironment] = useState<'sandbox' | 'live'>('sandbox'); // conservé pour UI
 
   useEffect(() => {
     async function loadSpec() {
@@ -64,7 +64,7 @@ export default function DashboardPage() {
     if (savedEmail) setEmail(savedEmail);
     if (savedApiKey) setApiKey(savedApiKey);
     if (savedToken) setAccessToken(savedToken);
-    if (savedEnv === 'production' || savedEnv === 'sandbox') setEnvironment(savedEnv);
+    if (savedEnv === 'live' || savedEnv === 'sandbox') setEnvironment(savedEnv);
   }, []);
 
   // Sauvegarder dans localStorage
@@ -174,10 +174,10 @@ export default function DashboardPage() {
                 <select
                   className="w-full border rounded-md p-2 text-sm"
                   value={environment}
-                  onChange={(e) => setEnvironment(e.target.value as 'sandbox' | 'production')}
+                  onChange={(e) => setEnvironment(e.target.value as 'sandbox' | 'live')}
                 >
                   <option value="sandbox">Sandbox</option>
-                  <option value="production">Production</option>
+                  <option value="live">Production</option>
                 </select>
                 <p className="text-xs text-gray-500 mt-1">
                   Base URL: <code>https://psp-api.fineopay.com/api/v1</code>

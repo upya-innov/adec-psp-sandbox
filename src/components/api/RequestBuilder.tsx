@@ -12,7 +12,7 @@ interface RequestBuilderProps {
   setQueryParams: Dispatch<SetStateAction<Record<string, string>>>
   headers: Record<string, string>
   setHeaders: Dispatch<SetStateAction<Record<string, string>>>
-  environment: 'sandbox' | 'production'
+  environment: 'sandbox' | 'live'
   accessToken?: string
   apiKey?: string
 }

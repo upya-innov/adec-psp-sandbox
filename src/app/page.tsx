@@ -32,7 +32,7 @@ export default function HomePage() {
 
   // États simplifiés - seulement API Key
   const [apiKey, setApiKey] = useState<string>('');
-  const [environment, setEnvironment] = useState<'sandbox' | 'production'>('sandbox');
+  const [environment, setEnvironment] = useState<'sandbox' | 'live'>('sandbox');
 
   // États UI
   const [showApiKey, setShowApiKey] = useState<boolean>(false);
@@ -63,7 +63,7 @@ export default function HomePage() {
     const savedConfigCollapsed = localStorage.getItem('psp_config_collapsed');
 
     if (savedApiKey) setApiKey(savedApiKey);
-    if (savedEnv === 'production' || savedEnv === 'sandbox') setEnvironment(savedEnv);
+    if (savedEnv === 'live' || savedEnv === 'sandbox') setEnvironment(savedEnv);
     if (savedConfigCollapsed === 'true') setIsConfigCollapsed(true);
   }, []);
 
@@ -332,10 +332,10 @@ export default function HomePage() {
                             <select
                               className="w-full border rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                               value={environment}
-                              onChange={(e) => setEnvironment(e.target.value as 'sandbox' | 'production')}
+                              onChange={(e) => setEnvironment(e.target.value as 'sandbox' | 'live')}
                             >
                               <option value="sandbox">Sandbox (Test)</option>
-                              <option value="production">Production (Live)</option>
+                              <option value="live">Production (Live)</option>
                             </select>
                             <div className="mt-2 text-xs text-gray-600 space-y-1">
                               <p className="flex items-center gap-1">
