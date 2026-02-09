@@ -3,8 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "NEXT_DISABLE_TURBOPACK=1 next build",
+    "dev": "TURBOPACK_ROOT=$(pwd) next dev",
+    "dev:noturbo": "next dev --no-turbopack",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint"
   },
