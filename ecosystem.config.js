@@ -4,7 +4,7 @@ module.exports = {
       name: "psp-doc",
       cwd: "/var/www/psp-doc.fineopay.com",
       script: "node",
-      args: "node_modules/next/dist/bin/next start -p 3010 -H 127.0.0.1",
+      args: "node_modules/next/dist/bin/next start -p 3010 -H 88.223.95.233",
       env: {
         NODE_ENV: "production"
       },
