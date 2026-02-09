@@ -27,29 +27,36 @@ export default function ApiTester({
   const [error, setError] = useState<string>('');
   const [requestHistory, setRequestHistory] = useState<any[]>([]);
 
-  // ✅ IMPORTANT: on passe par le proxy Next.js
-  const proxyUrl = '/api/proxy';
+  const baseUrl = 'https://psp-api.fineopay.com/api/v1';
 
   // Fonction pour déterminer le type d'authentification requis
   const getAuthType = (endpoint: Endpoint): 'jwt' | 'apiKey' | 'none' => {
     const path = endpoint.path.toLowerCase();
 
+    // Endpoints qui utilisent l'API Key (X-API-Key header)
     if (path.includes('/api-key')) {
       return 'apiKey';
     }
 
+    // Endpoints qui utilisent JWT (Authorization: Bearer)
     if (path.startsWith('/auth/') && path !== '/auth/login') {
       return 'jwt';
     }
 
+    // Vérifier si le endpoint a des requirements de sécurité
     if (endpoint.security && endpoint.security.length > 0) {
       const security = endpoint.security[0];
       if (security && typeof security === 'object') {
-        if ('bearerAuth' in security) return 'jwt';
-        if ('apiKeyAuth' in security) return 'apiKey';
+        if ('bearerAuth' in security) {
+          return 'jwt';
+        }
+        if ('apiKeyAuth' in security) {
+          return 'apiKey';
+        }
       }
     }
 
+    // Par défaut, si c'est un endpoint protégé (pas dans les public endpoints)
     const publicEndpoints = [
       '/health',
       '/auth/login',
@@ -65,7 +72,10 @@ export default function ApiTester({
       '/currency-exchange-rates'
     ];
 
-    if (!publicEndpoints.some(publicPath => path === publicPath)) return 'jwt';
+    if (!publicEndpoints.some(publicPath => path === publicPath)) {
+      return 'jwt';
+    }
+
     return 'none';
   };
 
@@ -77,78 +87,99 @@ export default function ApiTester({
     setResponse(null);
 
     try {
-      const authType = getAuthType(endpoint);
+      // Construire l'URL avec les query params
+      const url = new URL(`${baseUrl}${endpoint.path}`);
 
+      Object.entries(queryParams).forEach(([key, value]) => {
+        if (value.trim()) url.searchParams.append(key, value);
+      });
+
+      // Déterminer le type d'authentification
+      const authType = getAuthType(endpoint);
       const defaultHeaders: Record<string, string> = {
         'Content-Type': 'application/json',
       };
 
-      // Appliquer auth
+      // Appliquer l'authentification appropriée
       switch (authType) {
         case 'jwt':
-          if (!accessToken) {
-            throw new Error("Ce endpoint nécessite un token JWT. Connectez-vous d'abord.");
+          if (accessToken) {
+            defaultHeaders['Authorization'] = `Bearer ${accessToken}`;
+          } else {
+            throw new Error('Ce endpoint nécessite un token JWT. Connectez-vous d\'abord.');
           }
-          defaultHeaders['Authorization'] = `Bearer ${accessToken}`;
           break;
 
         case 'apiKey':
-          if (!apiKey) {
-            throw new Error("Ce endpoint nécessite une API Key. Créez-en une d'abord.");
+          if (apiKey) {
+            defaultHeaders['X-API-Key'] = apiKey;
+          } else {
+            throw new Error('Ce endpoint nécessite une API Key. Créez-en une d\'abord.');
           }
-          // ⚠️ Si tu utilises PSP_API_KEY côté serveur, tu peux supprimer cette ligne
-          defaultHeaders['X-API-Key'] = apiKey;
           break;
 
         case 'none':
+          // Pas d'authentification nécessaire
           break;
       }
 
-      // Headers custom saisis par l'utilisateur
+      // Ajouter les headers personnalisés
       const finalHeaders = { ...defaultHeaders, ...headers };
 
-      // Body JSON si nécessaire
-      let parsedBody: any = undefined;
+      const options: RequestInit = {
+        method: endpoint.method,
+        headers: finalHeaders,
+        cache: 'no-cache',
+      };
+
       if (['POST', 'PUT', 'PATCH'].includes(endpoint.method) && requestBody) {
         try {
-          parsedBody = JSON.parse(requestBody);
-        } catch {
+          // Valider que le JSON est valide
+          JSON.parse(requestBody);
+          options.body = requestBody;
+        } catch (e) {
           throw new Error('Le corps de la requête doit être un JSON valide');
         }
       }
 
-      const startTime = Date.now();
-
-      // ✅ Appel du proxy (pas de CORS)
-      const proxyResponse = await fetch(proxyUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        cache: 'no-cache',
-        body: JSON.stringify({
-          endpoint: endpoint.path,
-          method: endpoint.method,
-          headers: finalHeaders,
-          body: parsedBody,
-          queryParams,
-        }),
+      console.log('📤 Envoi de la requête:', {
+        url: url.toString(),
+        method: endpoint.method,
+        headers: finalHeaders,
+        body: requestBody || 'none',
       });
 
+      // Effectuer la requête
+      const startTime = Date.now();
+      const apiResponse = await fetch(url.toString(), options);
       const endTime = Date.now();
-      const proxyJson = await proxyResponse.json();
+
+      // Lire la réponse
+      let responseData: any;
+      let responseText = '';
+
+      try {
+        responseText = await apiResponse.text();
+        responseData = responseText ? JSON.parse(responseText) : {};
+      } catch (parseError) {
+        console.warn('Impossible de parser la réponse JSON:', parseError);
+        responseData = { raw: responseText };
+      }
 
       const responseInfo = {
-        status: proxyJson.status ?? proxyResponse.status,
-        statusText: proxyJson.success ? 'OK' : 'ERROR',
-        headers: proxyJson.headers ?? {},
-        data: proxyJson.data,
+        status: apiResponse.status,
+        statusText: apiResponse.statusText,
+        headers: Object.fromEntries(apiResponse.headers.entries()),
+        data: responseData,
         time: endTime - startTime,
-        size: JSON.stringify(proxyJson.data ?? {}).length,
-        url: proxyJson.finalUrl ?? endpoint.path,
+        size: responseText.length,
+        url: url.toString(),
       };
 
+      console.log('📥 Réponse reçue:', responseInfo);
       setResponse(responseInfo);
 
-      // Historique
+      // Ajouter à l'historique
       const historyItem = {
         id: Date.now(),
         timestamp: new Date(),
@@ -158,19 +189,21 @@ export default function ApiTester({
           body: requestBody,
           queryParams,
           headers: finalHeaders,
-          url: responseInfo.url,
+          url: url.toString(),
         },
         response: responseInfo,
       };
+
       setRequestHistory(prev => [historyItem, ...prev.slice(0, 9)]);
 
-      if (!proxyJson.success) {
-        setError(`Erreur ${responseInfo.status}`);
+      // Afficher une erreur si le status n'est pas 2xx
+      if (!apiResponse.ok) {
+        setError(`Erreur ${apiResponse.status}: ${apiResponse.statusText}`);
       }
 
     } catch (err: any) {
       console.error('❌ Erreur lors de la requête:', err);
-      setError(err.message || "Une erreur est survenue lors de l'envoi de la requête");
+      setError(err.message || 'Une erreur est survenue lors de l\'envoi de la requête');
     } finally {
       setLoading(false);
     }
@@ -205,10 +238,16 @@ export default function ApiTester({
   const generateExample = () => {
     let example: any = {};
 
+    // Exemples basés sur le endpoint
     if (endpoint.path === '/auth/login') {
-      example = { email: 'owner@mycompany.com', password: 'SecurePassword123!' };
+      example = {
+        email: 'owner@mycompany.com',
+        password: 'SecurePassword123!',
+      };
     } else if (endpoint.path === '/auth/refresh') {
-      example = { refresh_token: 'your-refresh-token-here' };
+      example = {
+        refresh_token: 'your-refresh-token-here',
+      };
     } else if (endpoint.path === '/onboarding/register') {
       example = {
         owner: {
@@ -243,7 +282,10 @@ export default function ApiTester({
           name: 'John Doe',
         },
         description: 'Payment for order #12345',
-        metadata: { order_id: '12345', product: 'Premium Subscription' },
+        metadata: {
+          order_id: '12345',
+          product: 'Premium Subscription',
+        },
       };
     } else if (endpoint.path === '/transfers' || endpoint.path === '/transfers/initiate') {
       example = {
@@ -252,23 +294,62 @@ export default function ApiTester({
         currency: 'XOF',
         country: 'BJ',
         channel: 'mtn_momo',
-        recipient: { phone_number: '22960000000', name: 'Alice Johnson' },
+        recipient: {
+          phone_number: '22960000000',
+          name: 'Alice Johnson',
+        },
         description: 'Payout for service rendered',
-        metadata: { payout_reason: 'freelance_payment', contract_id: 'CON-789' },
+        metadata: {
+          payout_reason: 'freelance_payment',
+          contract_id: 'CON-789',
+        },
       };
     } else if (endpoint.path === '/api-keys') {
-      example = { name: 'Production API Key', environment: 'live', permissions: ['transaction:create', 'transaction:read'] };
-    } else {
-      example = {};
+      example = {
+        name: 'Production API Key',
+        environment: 'live',
+        permissions: ['transaction:create', 'transaction:read']
+      };
+    } else if (endpoint.path === '/kyc/submissions') {
+      example = {
+        kyc_level: 'basic',
+        metadata: {
+          submission_reason: 'Initial KYC submission',
+        },
+      };
+    } else if (endpoint.path === '/tenant-channel-config') {
+      example = {
+        channel_id: 'channel-id',
+        is_enabled: true,
+        markup_type: 'percentage',
+        markup_percentage: 2.5,
+        min_amount: 100,
+        max_amount: 1000000,
+        daily_limit: 5000000,
+      };
+    } else if (endpoint.path === '/roles') {
+      example = {
+        name: 'Finance Manager',
+        description: 'Manages financial operations',
+        permission_ids: ['permission-id-1', 'permission-id-2'],
+      };
+    } else if (endpoint.path === '/users/me') {
+      example = {
+        first_name: 'Jane Updated',
+        last_name: 'Smith Updated',
+      };
     }
 
-    setRequestBody(JSON.stringify(example, null, 2));
+    if (Object.keys(example).length > 0) {
+      setRequestBody(JSON.stringify(example, null, 2));
+    } else {
+      setRequestBody('{}');
+    }
   };
 
   const generateCurlCommand = (): string => {
-    // Ici on génère le cURL vers l'API upstream (utile pour doc)
-    const upstreamBase = 'https://psp-api.fineopay.com/api/v1';
-    const url = new URL(`${upstreamBase}${endpoint.path}`);
+    const url = new URL(`${baseUrl}${endpoint.path}`);
+
     Object.entries(queryParams).forEach(([key, value]) => {
       if (value.trim()) url.searchParams.append(key, value);
     });
@@ -281,8 +362,11 @@ export default function ApiTester({
     };
 
     const authType = getAuthType(endpoint);
-    if (authType === 'jwt' && accessToken) allHeaders['Authorization'] = `Bearer ${accessToken}`;
-    else if (authType === 'apiKey' && apiKey) allHeaders['X-API-Key'] = apiKey;
+    if (authType === 'jwt' && accessToken) {
+      allHeaders['Authorization'] = `Bearer ${accessToken}`;
+    } else if (authType === 'apiKey' && apiKey) {
+      allHeaders['X-API-Key'] = apiKey;
+    }
 
     Object.entries(allHeaders).forEach(([key, value]) => {
       curl += `  -H "${key}: ${value}" \\\n`;
@@ -340,13 +424,13 @@ export default function ApiTester({
 
         <div className="flex items-center gap-4 text-sm text-gray-600">
           <div className="flex items-center gap-1">
-            <span className="font-medium">Proxy:</span>
-            <code className="bg-gray-50 px-2 py-1 rounded">{proxyUrl}</code>
+            <span className="font-medium">Base URL:</span>
+            <code className="bg-gray-50 px-2 py-1 rounded">{baseUrl}</code>
           </div>
           {accessToken && (
             <div className="flex items-center gap-1">
               <span className="font-medium">Auth:</span>
-              <span className="text-green-600">✓ JWT</span>
+              <span className="text-green-600">✓ Authentifié</span>
             </div>
           )}
           {endpointNeedsApiKey && apiKey && (
