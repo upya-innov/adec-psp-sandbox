@@ -1,3 +1,4 @@
+// /components/api/ApiTester.tsx
 'use client';
 
 import { useState } from 'react';
@@ -6,9 +7,17 @@ import RequestBuilder from './RequestBuilder';
 import ResponseViewer from './ResponseViewer';
 import { Play, Save, Copy, RotateCcw, AlertCircle } from 'lucide-react';
 
+type Env = 'sandbox' | 'live';
+
+// ✅ Mets ici tes vraies URLs (si sandbox a un autre domaine, remplace)
+const API_BASE: Record<Env, string> = {
+  sandbox: 'https://psp-api.fineopay.com/api/v1',
+  live: 'https://psp-api.fineopay.com/api/v1',
+};
+
 interface ApiTesterProps {
   endpoint: Endpoint;
-  environment: 'sandbox' | 'live';
+  environment: Env;
   accessToken: string;
   apiKey: string;
 }
@@ -27,36 +36,24 @@ export default function ApiTester({
   const [error, setError] = useState<string>('');
   const [requestHistory, setRequestHistory] = useState<any[]>([]);
 
-  const baseUrl = 'https://psp-api.fineopay.com/api/v1';
+  // ✅ Fix: baseUrl dépend de l'environnement + health = /api/v1/health (dans la doc)
+  const baseUrl = API_BASE[environment];
 
-  // Fonction pour déterminer le type d'authentification requis
   const getAuthType = (endpoint: Endpoint): 'jwt' | 'apiKey' | 'none' => {
     const path = endpoint.path.toLowerCase();
 
-    // Endpoints qui utilisent l'API Key (X-API-Key header)
-    if (path.includes('/api-key')) {
-      return 'apiKey';
-    }
+    if (path.includes('/api-key') || path.includes('/api-keys')) return 'apiKey';
 
-    // Endpoints qui utilisent JWT (Authorization: Bearer)
-    if (path.startsWith('/auth/') && path !== '/auth/login') {
-      return 'jwt';
-    }
+    if (path.startsWith('/auth/') && path !== '/auth/login') return 'jwt';
 
-    // Vérifier si le endpoint a des requirements de sécurité
     if (endpoint.security && endpoint.security.length > 0) {
       const security = endpoint.security[0];
       if (security && typeof security === 'object') {
-        if ('bearerAuth' in security) {
-          return 'jwt';
-        }
-        if ('apiKeyAuth' in security) {
-          return 'apiKey';
-        }
+        if ('bearerAuth' in security) return 'jwt';
+        if ('apiKeyAuth' in security) return 'apiKey';
       }
     }
 
-    // Par défaut, si c'est un endpoint protégé (pas dans les public endpoints)
     const publicEndpoints = [
       '/health',
       '/auth/login',
@@ -72,10 +69,7 @@ export default function ApiTester({
       '/currency-exchange-rates'
     ];
 
-    if (!publicEndpoints.some(publicPath => path === publicPath)) {
-      return 'jwt';
-    }
-
+    if (!publicEndpoints.some(publicPath => path === publicPath)) return 'jwt';
     return 'none';
   };
 
@@ -87,43 +81,33 @@ export default function ApiTester({
     setResponse(null);
 
     try {
-      // Construire l'URL avec les query params
       const url = new URL(`${baseUrl}${endpoint.path}`);
 
       Object.entries(queryParams).forEach(([key, value]) => {
         if (value.trim()) url.searchParams.append(key, value);
       });
 
-      // Déterminer le type d'authentification
       const authType = getAuthType(endpoint);
       const defaultHeaders: Record<string, string> = {
         'Content-Type': 'application/json',
+        'Accept': 'application/json',
       };
 
-      // Appliquer l'authentification appropriée
       switch (authType) {
         case 'jwt':
-          if (accessToken) {
-            defaultHeaders['Authorization'] = `Bearer ${accessToken}`;
-          } else {
-            throw new Error('Ce endpoint nécessite un token JWT. Connectez-vous d\'abord.');
-          }
+          if (accessToken) defaultHeaders['Authorization'] = `Bearer ${accessToken}`;
+          else throw new Error('Ce endpoint nécessite un token JWT. Connectez-vous d\'abord.');
           break;
 
         case 'apiKey':
-          if (apiKey) {
-            defaultHeaders['X-API-Key'] = apiKey;
-          } else {
-            throw new Error('Ce endpoint nécessite une API Key. Créez-en une d\'abord.');
-          }
+          if (apiKey) defaultHeaders['X-API-Key'] = apiKey;
+          else throw new Error('Ce endpoint nécessite une API Key. Créez-en une d\'abord.');
           break;
 
         case 'none':
-          // Pas d'authentification nécessaire
           break;
       }
 
-      // Ajouter les headers personnalisés
       const finalHeaders = { ...defaultHeaders, ...headers };
 
       const options: RequestInit = {
@@ -134,10 +118,9 @@ export default function ApiTester({
 
       if (['POST', 'PUT', 'PATCH'].includes(endpoint.method) && requestBody) {
         try {
-          // Valider que le JSON est valide
           JSON.parse(requestBody);
           options.body = requestBody;
-        } catch (e) {
+        } catch {
           throw new Error('Le corps de la requête doit être un JSON valide');
         }
       }
@@ -147,14 +130,13 @@ export default function ApiTester({
         method: endpoint.method,
         headers: finalHeaders,
         body: requestBody || 'none',
+        environment,
       });
 
-      // Effectuer la requête
       const startTime = Date.now();
       const apiResponse = await fetch(url.toString(), options);
       const endTime = Date.now();
 
-      // Lire la réponse
       let responseData: any;
       let responseText = '';
 
@@ -179,7 +161,6 @@ export default function ApiTester({
       console.log('📥 Réponse reçue:', responseInfo);
       setResponse(responseInfo);
 
-      // Ajouter à l'historique
       const historyItem = {
         id: Date.now(),
         timestamp: new Date(),
@@ -190,20 +171,17 @@ export default function ApiTester({
           queryParams,
           headers: finalHeaders,
           url: url.toString(),
+          environment,
         },
         response: responseInfo,
       };
 
       setRequestHistory(prev => [historyItem, ...prev.slice(0, 9)]);
 
-      // Afficher une erreur si le status n'est pas 2xx
-      if (!apiResponse.ok) {
-        setError(`Erreur ${apiResponse.status}: ${apiResponse.statusText}`);
-      }
-
+      if (!apiResponse.ok) setError(`Erreur ${apiResponse.status}: ${apiResponse.statusText}`);
     } catch (err: any) {
       console.error('❌ Erreur lors de la requête:', err);
-      setError(err.message || 'Une erreur est survenue lors de l\'envoi de la requête');
+      setError(err?.message || 'Une erreur est survenue lors de l\'envoi de la requête');
     } finally {
       setLoading(false);
     }
@@ -238,16 +216,10 @@ export default function ApiTester({
   const generateExample = () => {
     let example: any = {};
 
-    // Exemples basés sur le endpoint
     if (endpoint.path === '/auth/login') {
-      example = {
-        email: 'owner@mycompany.com',
-        password: 'SecurePassword123!',
-      };
+      example = { email: 'owner@mycompany.com', password: 'SecurePassword123!' };
     } else if (endpoint.path === '/auth/refresh') {
-      example = {
-        refresh_token: 'your-refresh-token-here',
-      };
+      example = { refresh_token: 'your-refresh-token-here' };
     } else if (endpoint.path === '/onboarding/register') {
       example = {
         owner: {
@@ -282,10 +254,7 @@ export default function ApiTester({
           name: 'John Doe',
         },
         description: 'Payment for order #12345',
-        metadata: {
-          order_id: '12345',
-          product: 'Premium Subscription',
-        },
+        metadata: { order_id: '12345', product: 'Premium Subscription' },
       };
     } else if (endpoint.path === '/transfers' || endpoint.path === '/transfers/initiate') {
       example = {
@@ -294,29 +263,14 @@ export default function ApiTester({
         currency: 'XOF',
         country: 'BJ',
         channel: 'mtn_momo',
-        recipient: {
-          phone_number: '22960000000',
-          name: 'Alice Johnson',
-        },
+        recipient: { phone_number: '22960000000', name: 'Alice Johnson' },
         description: 'Payout for service rendered',
-        metadata: {
-          payout_reason: 'freelance_payment',
-          contract_id: 'CON-789',
-        },
+        metadata: { payout_reason: 'freelance_payment', contract_id: 'CON-789' },
       };
     } else if (endpoint.path === '/api-keys') {
-      example = {
-        name: 'Production API Key',
-        environment: 'live',
-        permissions: ['transaction:create', 'transaction:read']
-      };
+      example = { name: 'Production API Key', environment: 'live', permissions: ['transaction:create', 'transaction:read'] };
     } else if (endpoint.path === '/kyc/submissions') {
-      example = {
-        kyc_level: 'basic',
-        metadata: {
-          submission_reason: 'Initial KYC submission',
-        },
-      };
+      example = { kyc_level: 'basic', metadata: { submission_reason: 'Initial KYC submission' } };
     } else if (endpoint.path === '/tenant-channel-config') {
       example = {
         channel_id: 'channel-id',
@@ -328,28 +282,16 @@ export default function ApiTester({
         daily_limit: 5000000,
       };
     } else if (endpoint.path === '/roles') {
-      example = {
-        name: 'Finance Manager',
-        description: 'Manages financial operations',
-        permission_ids: ['permission-id-1', 'permission-id-2'],
-      };
+      example = { name: 'Finance Manager', description: 'Manages financial operations', permission_ids: ['permission-id-1', 'permission-id-2'] };
     } else if (endpoint.path === '/users/me') {
-      example = {
-        first_name: 'Jane Updated',
-        last_name: 'Smith Updated',
-      };
+      example = { first_name: 'Jane Updated', last_name: 'Smith Updated' };
     }
 
-    if (Object.keys(example).length > 0) {
-      setRequestBody(JSON.stringify(example, null, 2));
-    } else {
-      setRequestBody('{}');
-    }
+    setRequestBody(Object.keys(example).length > 0 ? JSON.stringify(example, null, 2) : '{}');
   };
 
   const generateCurlCommand = (): string => {
     const url = new URL(`${baseUrl}${endpoint.path}`);
-
     Object.entries(queryParams).forEach(([key, value]) => {
       if (value.trim()) url.searchParams.append(key, value);
     });
@@ -362,11 +304,8 @@ export default function ApiTester({
     };
 
     const authType = getAuthType(endpoint);
-    if (authType === 'jwt' && accessToken) {
-      allHeaders['Authorization'] = `Bearer ${accessToken}`;
-    } else if (authType === 'apiKey' && apiKey) {
-      allHeaders['X-API-Key'] = apiKey;
-    }
+    if (authType === 'jwt' && accessToken) allHeaders['Authorization'] = `Bearer ${accessToken}`;
+    else if (authType === 'apiKey' && apiKey) allHeaders['X-API-Key'] = apiKey;
 
     Object.entries(allHeaders).forEach(([key, value]) => {
       curl += `  -H "${key}: ${value}" \\\n`;

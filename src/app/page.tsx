@@ -1,495 +1,562 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import Sidebar from '@/components/layout/Sidebar';
-import Header from '@/components/layout/Header';
-import ApiTester from '@/components/api/ApiTester';
+import { useState } from 'react';
 import { Endpoint } from '@/types/openapi';
-import { loadOpenAPISpec, getAllEndpoints } from '@/lib/openapi-parser';
-import {
-  Key,
-  CheckCircle,
-  XCircle,
-  Eye,
-  EyeOff,
-  Copy,
-  Check,
-  Settings,
-  RefreshCw,
-  ChevronUp,
-  ChevronDown,
-} from 'lucide-react';
+import { Play, Save, Copy, RotateCcw, AlertCircle } from 'lucide-react';
+import RequestBuilder from '@/components/api/RequestBuilder';
+import ResponseViewer from '@/components/api/ResponseViewer';
 
-export default function HomePage() {
-  const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
-  const [selectedEndpoint, setSelectedEndpoint] = useState<Endpoint | null>(null);
+interface ApiTesterProps {
+  endpoint: Endpoint;
+  environment: 'sandbox' | 'live';
+  accessToken: string;
+  apiKey: string;
+}
 
-  // État pour réduire/afficher la configuration
-  const [isConfigCollapsed, setIsConfigCollapsed] = useState<boolean>(false);
+export default function ApiTester({
+  endpoint,
+  environment,
+  accessToken,
+  apiKey,
+}: ApiTesterProps) {
+  const [requestBody, setRequestBody] = useState<string>('');
+  const [queryParams, setQueryParams] = useState<Record<string, string>>({});
+  const [headers, setHeaders] = useState<Record<string, string>>({});
+  const [response, setResponse] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string>('');
+  const [requestHistory, setRequestHistory] = useState<any[]>([]);
 
-  // Ref pour le scroll vers ApiTester
-  const apiTesterRef = useRef<HTMLDivElement>(null);
+  const baseUrl = 'https://psp-api.fineopay.com/api/v1';
 
-  // États simplifiés - seulement API Key
-  const [apiKey, setApiKey] = useState<string>('');
-  const [environment, setEnvironment] = useState<'sandbox' | 'live'>('sandbox');
+  // Fonction pour déterminer le type d'authentification requis
+  const getAuthType = (endpoint: Endpoint): 'jwt' | 'apiKey' | 'none' => {
+    const path = endpoint.path.toLowerCase();
 
-  // États UI
-  const [showApiKey, setShowApiKey] = useState<boolean>(false);
-  const [copiedItem, setCopiedItem] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info', text: string } | null>(null);
+    // Endpoints qui utilisent l'API Key (X-API-Key header)
+    if (path.includes('/api-key')) {
+      return 'apiKey';
+    }
 
-  // Charger la spécification OpenAPI
-  useEffect(() => {
-    async function loadAPI() {
-      try {
-        const spec = await loadOpenAPISpec();
-        const allEndpoints = getAllEndpoints(spec);
-        setEndpoints(allEndpoints);
-        if (allEndpoints.length > 0) setSelectedEndpoint(allEndpoints[0]);
-      } catch (error) {
-        console.error('Failed to load API spec:', error);
-        showMessage('error', 'Impossible de charger la spécification API');
+    // Endpoints qui utilisent JWT (Authorization: Bearer)
+    if (path.startsWith('/auth/') && path !== '/auth/login') {
+      return 'jwt';
+    }
+
+    // Vérifier si le endpoint a des requirements de sécurité
+    if (endpoint.security && endpoint.security.length > 0) {
+      const security = endpoint.security[0];
+      if (security && typeof security === 'object') {
+        if ('bearerAuth' in security) {
+          return 'jwt';
+        }
+        if ('apiKeyAuth' in security) {
+          return 'apiKey';
+        }
       }
     }
-    loadAPI();
-  }, []);
 
-  // Charger les données sauvegardées
-  useEffect(() => {
-    const savedApiKey = localStorage.getItem('psp_api_key');
-    const savedEnv = localStorage.getItem('psp_environment');
-    const savedConfigCollapsed = localStorage.getItem('psp_config_collapsed');
+    // Par défaut, si c'est un endpoint protégé (pas dans les public endpoints)
+    const publicEndpoints = [
+      '/health',
+      '/auth/login',
+      '/auth/refresh',
+      '/auth/verify-email',
+      '/auth/verify-email/code',
+      '/onboarding/register',
+      '/countries',
+      '/channels',
+      '/currencies',
+      '/business-types',
+      '/partners',
+      '/currency-exchange-rates'
+    ];
 
-    if (savedApiKey) setApiKey(savedApiKey);
-    if (savedEnv === 'live' || savedEnv === 'sandbox') setEnvironment(savedEnv);
-    if (savedConfigCollapsed === 'true') setIsConfigCollapsed(true);
-  }, []);
-
-  // Sauvegarder les données
-  useEffect(() => {
-    localStorage.setItem('psp_environment', environment);
-    localStorage.setItem('psp_config_collapsed', isConfigCollapsed.toString());
-    if (apiKey) {
-      localStorage.setItem('psp_api_key', apiKey);
-    } else {
-      localStorage.removeItem('psp_api_key');
+    if (!publicEndpoints.some(publicPath => path === publicPath)) {
+      return 'jwt';
     }
-  }, [apiKey, environment, isConfigCollapsed]);
 
-  // Fonction pour afficher des messages
-  const showMessage = (type: 'success' | 'error' | 'info', text: string) => {
-    setMessage({ type, text });
-    setTimeout(() => setMessage(null), 3000);
+    return 'none';
   };
 
-  // Fonction pour copier du texte
-  const copyToClipboard = (text: string, itemName: string) => {
-    if (!text) {
-      showMessage('error', 'Rien à copier');
-      return;
-    }
+  const endpointNeedsApiKey = getAuthType(endpoint) === 'apiKey';
 
-    navigator.clipboard.writeText(text)
-      .then(() => {
-        setCopiedItem(itemName);
-        showMessage('success', 'Copié dans le presse-papier');
-        setTimeout(() => setCopiedItem(null), 2000);
-      })
-      .catch(err => {
-        console.error('Failed to copy: ', err);
-        showMessage('error', 'Échec de la copie');
-      });
-  };
-
-  // Fonction pour tester l'API Key
-  const testApiKey = async () => {
-    if (!apiKey) {
-      showMessage('error', 'Veuillez entrer une API Key');
-      return;
-    }
-
-    setIsLoading(true);
-    showMessage('info', 'Test de l\'API Key en cours...');
+  const handleSendRequest = async () => {
+    setLoading(true);
+    setError('');
+    setResponse(null);
 
     try {
-      const response = await fetch('https://psp-api.fineopay.com/health', {
-        method: 'GET',
-        headers: {
-          'X-API-Key': apiKey,
-          'Content-Type': 'application/json',
-        },
+      // Construire l'URL avec les query params
+      const url = new URL(`${baseUrl}${endpoint.path}`);
+
+      Object.entries(queryParams).forEach(([key, value]) => {
+        if (value.trim()) url.searchParams.append(key, value);
       });
 
-      if (response.ok) {
-        showMessage('success', 'API Key valide !');
-      } else {
-        showMessage('error', 'API Key invalide ou expirée');
+      // Déterminer le type d'authentification
+      const authType = getAuthType(endpoint);
+      const defaultHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+
+      // Appliquer l'authentification appropriée
+      switch (authType) {
+        case 'jwt':
+          if (accessToken) {
+            defaultHeaders['Authorization'] = `Bearer ${accessToken}`;
+          } else {
+            throw new Error('Ce endpoint nécessite un token JWT. Connectez-vous d\'abord.');
+          }
+          break;
+
+        case 'apiKey':
+          if (apiKey) {
+            defaultHeaders['X-API-Key'] = apiKey;
+          } else {
+            throw new Error('Ce endpoint nécessite une API Key. Créez-en une d\'abord.');
+          }
+          break;
+
+        case 'none':
+          // Pas d'authentification nécessaire
+          break;
       }
-    } catch (error) {
-      console.error('API Key test failed:', error);
-      showMessage('error', 'Erreur lors du test de l\'API Key');
+
+      // Ajouter les headers personnalisés
+      const finalHeaders = { ...defaultHeaders, ...headers };
+
+      const options: RequestInit = {
+        method: endpoint.method,
+        headers: finalHeaders,
+        cache: 'no-cache',
+      };
+
+      if (['POST', 'PUT', 'PATCH'].includes(endpoint.method) && requestBody) {
+        try {
+          // Valider que le JSON est valide
+          JSON.parse(requestBody);
+          options.body = requestBody;
+        } catch (e) {
+          throw new Error('Le corps de la requête doit être un JSON valide');
+        }
+      }
+
+      console.log('📤 Envoi de la requête:', {
+        url: url.toString(),
+        method: endpoint.method,
+        headers: finalHeaders,
+        body: requestBody || 'none',
+      });
+
+      // Effectuer la requête
+      const startTime = Date.now();
+      const apiResponse = await fetch(url.toString(), options);
+      const endTime = Date.now();
+
+      // Lire la réponse
+      let responseData: any;
+      let responseText = '';
+
+      try {
+        responseText = await apiResponse.text();
+        responseData = responseText ? JSON.parse(responseText) : {};
+      } catch (parseError) {
+        console.warn('Impossible de parser la réponse JSON:', parseError);
+        responseData = { raw: responseText };
+      }
+
+      const responseInfo = {
+        status: apiResponse.status,
+        statusText: apiResponse.statusText,
+        headers: Object.fromEntries(apiResponse.headers.entries()),
+        data: responseData,
+        time: endTime - startTime,
+        size: responseText.length,
+        url: url.toString(),
+      };
+
+      console.log('📥 Réponse reçue:', responseInfo);
+      setResponse(responseInfo);
+
+      // Ajouter à l'historique
+      const historyItem = {
+        id: Date.now(),
+        timestamp: new Date(),
+        request: {
+          endpoint: endpoint.path,
+          method: endpoint.method,
+          body: requestBody,
+          queryParams,
+          headers: finalHeaders,
+          url: url.toString(),
+        },
+        response: responseInfo,
+      };
+
+      setRequestHistory(prev => [historyItem, ...prev.slice(0, 9)]);
+
+      // Afficher une erreur si le status n'est pas 2xx
+      if (!apiResponse.ok) {
+        setError(`Erreur ${apiResponse.status}: ${apiResponse.statusText}`);
+      }
+
+    } catch (err: any) {
+      console.error('❌ Erreur lors de la requête:', err);
+      setError(err.message || 'Une erreur est survenue lors de l\'envoi de la requête');
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
-  // Fonction pour réinitialiser
   const handleReset = () => {
-    setApiKey('');
-    setEnvironment('sandbox');
-    setShowApiKey(false);
-    showMessage('info', 'Configuration réinitialisée');
+    setRequestBody('');
+    setQueryParams({});
+    setHeaders({});
+    setResponse(null);
+    setError('');
   };
 
-  // Fonction pour scroller vers ApiTester
-  const scrollToApiTester = () => {
-    apiTesterRef.current?.scrollIntoView({
-      behavior: 'smooth',
-      block: 'start'
-    });
+  const handleSaveRequest = () => {
+    const requestData = {
+      endpoint: endpoint.path,
+      method: endpoint.method,
+      body: requestBody,
+      queryParams,
+      headers,
+      environment,
+      timestamp: new Date().toISOString(),
+    };
+
+    const savedRequests = JSON.parse(localStorage.getItem('adec_saved_requests') || '[]');
+    savedRequests.push(requestData);
+    localStorage.setItem('adec_saved_requests', JSON.stringify(savedRequests));
+
+    alert('Requête sauvegardée !');
   };
 
-  // Modifier la fonction onSelectEndpoint pour inclure le scroll
-  const handleSelectEndpoint = (endpoint: Endpoint) => {
-    setSelectedEndpoint(endpoint);
+  const generateExample = () => {
+    let example: any = {};
 
-    // Si la configuration est réduite, on scroll directement
-    if (isConfigCollapsed) {
-      setTimeout(scrollToApiTester, 100); // Petit délai pour la transition
+    // Exemples basés sur le endpoint
+    if (endpoint.path === '/auth/login') {
+      example = {
+        email: 'owner@mycompany.com',
+        password: 'SecurePassword123!',
+      };
+    } else if (endpoint.path === '/auth/refresh') {
+      example = {
+        refresh_token: 'your-refresh-token-here',
+      };
+    } else if (endpoint.path === '/onboarding/register') {
+      example = {
+        owner: {
+          email: 'owner@mycompany.com',
+          password: 'SecurePassword123!',
+          first_name: 'John',
+          last_name: 'Doe',
+          phone_number: '+2250700000000',
+        },
+        company: {
+          company_name: 'My Business SARL',
+          country_id: 'country-uuid',
+          business_type_id: 'business-type-uuid',
+          business_email: 'contact@mybusiness.com',
+          phone: '+2250700000001',
+          registration_number: 'RC-12345',
+          address: '123 Rue du Commerce',
+          city: 'Abidjan',
+          postal_code: '00225',
+        },
+      };
+    } else if (endpoint.path === '/payments' || endpoint.path === '/payments/initiate') {
+      example = {
+        transaction_id: `TX-${Date.now()}`,
+        amount: 1000,
+        currency: 'XOF',
+        country: 'CI',
+        channel: 'orange_money',
+        customer: {
+          phone_number: '2250700000000',
+          email: 'customer@example.com',
+          name: 'John Doe',
+        },
+        description: 'Payment for order #12345',
+        metadata: {
+          order_id: '12345',
+          product: 'Premium Subscription',
+        },
+      };
+    } else if (endpoint.path === '/transfers' || endpoint.path === '/transfers/initiate') {
+      example = {
+        transfer_id: `TR-${Date.now()}`,
+        amount: 2500,
+        currency: 'XOF',
+        country: 'BJ',
+        channel: 'mtn_momo',
+        recipient: {
+          phone_number: '22960000000',
+          name: 'Alice Johnson',
+        },
+        description: 'Payout for service rendered',
+        metadata: {
+          payout_reason: 'freelance_payment',
+          contract_id: 'CON-789',
+        },
+      };
+    } else if (endpoint.path === '/api-keys') {
+      example = {
+        name: 'Production API Key',
+        environment: 'live',
+        permissions: ['transaction:create', 'transaction:read']
+      };
+    } else if (endpoint.path === '/kyc/submissions') {
+      example = {
+        kyc_level: 'basic',
+        metadata: {
+          submission_reason: 'Initial KYC submission',
+        },
+      };
+    } else if (endpoint.path === '/tenant-channel-config') {
+      example = {
+        channel_id: 'channel-id',
+        is_enabled: true,
+        markup_type: 'percentage',
+        markup_percentage: 2.5,
+        min_amount: 100,
+        max_amount: 1000000,
+        daily_limit: 5000000,
+      };
+    } else if (endpoint.path === '/roles') {
+      example = {
+        name: 'Finance Manager',
+        description: 'Manages financial operations',
+        permission_ids: ['permission-id-1', 'permission-id-2'],
+      };
+    } else if (endpoint.path === '/users/me') {
+      example = {
+        first_name: 'Jane Updated',
+        last_name: 'Smith Updated',
+      };
+    }
+
+    if (Object.keys(example).length > 0) {
+      setRequestBody(JSON.stringify(example, null, 2));
+    } else {
+      setRequestBody('{}');
     }
   };
 
-  // Fonction pour basculer l'état de réduction
-  const toggleConfigCollapsed = () => {
-    setIsConfigCollapsed(!isConfigCollapsed);
+  const generateCurlCommand = (): string => {
+    const url = new URL(`${baseUrl}${endpoint.path}`);
+
+    Object.entries(queryParams).forEach(([key, value]) => {
+      if (value.trim()) url.searchParams.append(key, value);
+    });
+
+    let curl = `curl -X ${endpoint.method} "${url.toString()}" \\\n`;
+
+    const allHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...headers,
+    };
+
+    const authType = getAuthType(endpoint);
+    if (authType === 'jwt' && accessToken) {
+      allHeaders['Authorization'] = `Bearer ${accessToken}`;
+    } else if (authType === 'apiKey' && apiKey) {
+      allHeaders['X-API-Key'] = apiKey;
+    }
+
+    Object.entries(allHeaders).forEach(([key, value]) => {
+      curl += `  -H "${key}: ${value}" \\\n`;
+    });
+
+    if (requestBody && ['POST', 'PUT', 'PATCH'].includes(endpoint.method)) {
+      curl += `  -d '${requestBody}'`;
+    }
+
+    return curl;
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Header />
+    <div className="space-y-6">
+      <div className="bg-white rounded-lg shadow p-6">
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <span
+                className={`px-3 py-1 rounded-full text-sm font-medium ${endpoint.method === 'GET'
+                  ? 'bg-blue-100 text-blue-800'
+                  : endpoint.method === 'POST'
+                    ? 'bg-green-100 text-green-800'
+                    : endpoint.method === 'PUT'
+                      ? 'bg-yellow-100 text-yellow-800'
+                      : 'bg-red-100 text-red-800'
+                  }`}
+              >
+                {endpoint.method}
+              </span>
+              <code className="text-lg font-mono bg-gray-50 px-3 py-1 rounded">
+                {endpoint.path}
+              </code>
+            </div>
+            <h2 className="text-xl font-semibold">{endpoint.summary}</h2>
+            <p className="text-gray-600 mt-1">{endpoint.description}</p>
+          </div>
 
-      <div className="flex">
-        <Sidebar
-          endpoints={endpoints}
-          selectedEndpoint={selectedEndpoint}
-          onSelectEndpoint={handleSelectEndpoint}
-          onScrollToApiTester={scrollToApiTester}
-        />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={generateExample}
+              className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+            >
+              Exemple
+            </button>
+            <button
+              onClick={handleSaveRequest}
+              className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 flex items-center gap-1"
+            >
+              <Save className="h-4 w-4" />
+              Sauvegarder
+            </button>
+          </div>
+        </div>
 
-        <main className="flex-1 p-6">
-          <div className="max-w-7xl mx-auto">
-            {/* Section de configuration avec bouton de réduction */}
-            <div className="mb-8 bg-white rounded-lg shadow">
-              {/* En-tête de configuration */}
-              <div className="p-4 border-b">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-xl font-semibold flex items-center gap-2">
-                    <Settings className="h-5 w-5" />
-                    Configuration API
-                    {isConfigCollapsed && (
-                      <span className="text-sm font-normal text-gray-500 ml-2">
-                        (Réduite - cliquez sur un endpoint pour tester)
-                      </span>
-                    )}
-                  </h2>
+        <div className="flex items-center gap-4 text-sm text-gray-600">
+          <div className="flex items-center gap-1">
+            <span className="font-medium">Base URL:</span>
+            <code className="bg-gray-50 px-2 py-1 rounded">{baseUrl}</code>
+          </div>
+          {accessToken && (
+            <div className="flex items-center gap-1">
+              <span className="font-medium">Auth:</span>
+              <span className="text-green-600">✓ Authentifié</span>
+            </div>
+          )}
+          {endpointNeedsApiKey && apiKey && (
+            <div className="flex items-center gap-1">
+              <span className="font-medium">API Key:</span>
+              <span className="text-green-600">✓ X-API-Key</span>
+            </div>
+          )}
+          <div className="flex items-center gap-1">
+            <span className="font-medium">Auth type:</span>
+            <span className="font-mono text-xs px-2 py-1 bg-gray-100 rounded">
+              {getAuthType(endpoint)}
+            </span>
+          </div>
+        </div>
+      </div>
 
-                  <div className="flex items-center gap-4">
-                    {message && !isConfigCollapsed && (
-                      <div className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm ${message.type === 'success' ? 'bg-green-50 text-green-800' :
-                        message.type === 'error' ? 'bg-red-50 text-red-800' :
-                          'bg-blue-50 text-blue-800'
-                        }`}>
-                        {message.type === 'success' ? <CheckCircle className="h-4 w-4" /> :
-                          message.type === 'error' ? <XCircle className="h-4 w-4" /> :
-                            <RefreshCw className="h-4 w-4 animate-spin" />}
-                        {message.text}
-                      </div>
-                    )}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="space-y-6">
+          <RequestBuilder
+            endpoint={endpoint}
+            requestBody={requestBody}
+            setRequestBody={setRequestBody}
+            queryParams={queryParams}
+            setQueryParams={setQueryParams}
+            headers={headers}
+            setHeaders={setHeaders}
+            environment={environment}
+            accessToken={accessToken}
+            apiKey={apiKey}
+          />
 
-                    <button
-                      onClick={toggleConfigCollapsed}
-                      className="text-gray-500 hover:text-gray-700 p-1 rounded hover:bg-gray-100 transition-colors flex items-center gap-1"
-                      title={isConfigCollapsed ? "Afficher la configuration" : "Réduire la configuration"}
-                    >
-                      {isConfigCollapsed ? (
-                        <>
-                          <ChevronDown className="h-5 w-5" />
-                          <span className="text-sm">Afficher</span>
-                        </>
-                      ) : (
-                        <>
-                          <ChevronUp className="h-5 w-5" />
-                          <span className="text-sm">Réduire</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={handleSendRequest}
+              disabled={loading}
+              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50"
+            >
+              <Play className="h-4 w-4" />
+              {loading ? 'Envoi en cours...' : 'Envoyer la requête'}
+            </button>
+
+            <button
+              onClick={handleReset}
+              className="flex items-center gap-2 border border-gray-300 px-4 py-2 rounded-md hover:bg-gray-50"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Réinitialiser
+            </button>
+
+            <button
+              onClick={() => {
+                const curlCommand = generateCurlCommand();
+                navigator.clipboard.writeText(curlCommand);
+                alert('Commande cURL copiée !');
+              }}
+              className="flex items-center gap-2 border border-gray-300 px-4 py-2 rounded-md hover:bg-gray-50"
+            >
+              <Copy className="h-4 w-4" />
+              Copier cURL
+            </button>
+          </div>
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-md p-4">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 text-red-500 mt-0.5" />
+                <div>
+                  <h4 className="font-medium text-red-800">Erreur</h4>
+                  <p className="text-red-600 text-sm mt-1">{error}</p>
                 </div>
               </div>
-
-              {/* Contenu de la configuration (conditionnel) */}
-              {!isConfigCollapsed && (
-                <div className="p-6">
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Colonne gauche : API Key */}
-                    <div className="space-y-6">
-                      <div>
-                        <h3 className="font-medium mb-3">1. Configuration de l&apos;API Key</h3>
-                        <div className="space-y-4">
-                          <div>
-                            <label className="block text-sm font-medium mb-1">
-                              Votre API Key
-                              <span className="text-red-500 ml-1">*</span>
-                            </label>
-                            <div className="relative">
-                              <input
-                                type={showApiKey ? "text" : "password"}
-                                className="w-full border rounded-md p-2 text-sm font-mono text-xs pr-20 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                placeholder="pspkey_live_xxxxxxxxxxxxxxxxxxxxxxxx"
-                                value={apiKey}
-                                onChange={(e) => setApiKey(e.target.value)}
-                                spellCheck={false}
-                              />
-                              <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() => copyToClipboard(apiKey, 'apiKey')}
-                                  className="text-gray-500 hover:text-blue-600 p-1 rounded hover:bg-gray-100 transition-colors"
-                                  title="Copier l'API Key"
-                                  disabled={!apiKey}
-                                >
-                                  {copiedItem === 'apiKey' ? (
-                                    <Check className="h-4 w-4 text-green-600" />
-                                  ) : (
-                                    <Copy className="h-4 w-4" />
-                                  )}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setShowApiKey(!showApiKey)}
-                                  className="text-gray-500 hover:text-gray-700 p-1 rounded hover:bg-gray-100 transition-colors"
-                                  title={showApiKey ? "Masquer l'API Key" : "Afficher l'API Key"}
-                                >
-                                  {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                                </button>
-                              </div>
-                            </div>
-                            <div className="mt-2">
-                              <button
-                                onClick={testApiKey}
-                                disabled={!apiKey || isLoading}
-                                className="w-full bg-blue-600 text-white px-3 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm flex items-center justify-center gap-2 transition-colors"
-                              >
-                                {isLoading ? (
-                                  <>
-                                    <RefreshCw className="h-4 w-4 animate-spin" />
-                                    Test en cours...
-                                  </>
-                                ) : (
-                                  <>
-                                    <CheckCircle className="h-4 w-4" />
-                                    Tester l&apos;API Key
-                                  </>
-                                )}
-                              </button>
-                            </div>
-                          </div>
-
-                          <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
-                            <h4 className="font-medium text-blue-800 text-sm mb-1">Où trouver votre API Key ?</h4>
-                            <ul className="text-xs text-blue-700 space-y-1">
-                              <li className="flex items-start gap-1">
-                                <span className="mt-0.5">•</span>
-                                <span>Connectez-vous à votre espace client Fineopay</span>
-                              </li>
-                              <li className="flex items-start gap-1">
-                                <span className="mt-0.5">•</span>
-                                <span>Accédez à la section &quot;API Keys&quot; ou &quot;Développeurs&quot;</span>
-                              </li>
-                              <li className="flex items-start gap-1">
-                                <span className="mt-0.5">•</span>
-                                <span>Générez une nouvelle clé ou copiez une clé existante</span>
-                              </li>
-                              <li className="flex items-start gap-1">
-                                <span className="mt-0.5">•</span>
-                                <span>Collez-la dans le champ ci-dessus</span>
-                              </li>
-                            </ul>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Colonne droite : Environnement et informations */}
-                    <div className="space-y-6">
-                      <div>
-                        <h3 className="font-medium mb-3">2. Environnement</h3>
-                        <div className="space-y-3">
-                          <div>
-                            <label className="block text-sm font-medium mb-1">Environnement</label>
-                            <select
-                              className="w-full border rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                              value={environment}
-                              onChange={(e) => setEnvironment(e.target.value as 'sandbox' | 'live')}
-                            >
-                              <option value="sandbox">Sandbox (Test)</option>
-                              <option value="live">Production (Live)</option>
-                            </select>
-                            <div className="mt-2 text-xs text-gray-600 space-y-1">
-                              <p className="flex items-center gap-1">
-                                <span className="font-medium">Base URL:</span>
-                                <code className="bg-gray-100 px-1.5 py-0.5 rounded">https://psp-api.fineopay.com/api/v1</code>
-                              </p>
-                              <p className={`flex items-center gap-1 ${environment === 'sandbox' ? 'text-yellow-600' : 'text-green-600'}`}>
-                                <span className="font-medium">Statut:</span>
-                                {environment === 'sandbox' ? (
-                                  <>
-                                    <span className="h-2 w-2 bg-yellow-500 rounded-full"></span>
-                                    <span>Mode test - Aucune transaction réelle</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <span className="h-2 w-2 bg-green-500 rounded-full"></span>
-                                    <span>Mode production - Transactions réelles</span>
-                                  </>
-                                )}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="bg-gray-50 border border-gray-200 rounded-md p-3">
-                            <h4 className="font-medium text-gray-800 text-sm mb-1">Recommandations</h4>
-                            <ul className="text-xs text-gray-600 space-y-1">
-                              <li className="flex items-start gap-1">
-                                <span className="mt-0.5">•</span>
-                                <span>Utilisez le mode <strong>Sandbox</strong> pour vos tests de développement</span>
-                              </li>
-                              <li className="flex items-start gap-1">
-                                <span className="mt-0.5">•</span>
-                                <span>Basculez sur <strong>Production</strong> uniquement lorsque vous êtes prêt pour le lancement</span>
-                              </li>
-                              <li className="flex items-start gap-1">
-                                <span className="mt-0.5">•</span>
-                                <span>Ne partagez jamais votre API Key en production</span>
-                              </li>
-                            </ul>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="pt-4 border-t">
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            onClick={handleReset}
-                            className="flex-1 text-red-600 border border-red-300 px-4 py-2 rounded-md hover:bg-red-50 text-sm transition-colors"
-                          >
-                            Réinitialiser
-                          </button>
-                          <button
-                            onClick={() => copyToClipboard(apiKey, 'apiKey')}
-                            disabled={!apiKey}
-                            className="flex-1 border border-gray-300 px-4 py-2 rounded-md hover:bg-gray-50 text-sm transition-colors flex items-center justify-center gap-1 disabled:opacity-50"
-                          >
-                            <Copy className="h-4 w-4" />
-                            Copier la clé
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Indicateurs d'état */}
-                  <div className="mt-6 pt-4 border-t">
-                    <h4 className="font-medium mb-3">État de la configuration</h4>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      <div className={`p-3 rounded-md ${apiKey ? 'bg-green-50' : 'bg-gray-100'} transition-colors`}>
-                        <div className="text-xs text-gray-500 mb-1">API Key</div>
-                        <div className={`font-medium ${apiKey ? 'text-green-600' : 'text-gray-400'} flex items-center gap-1`}>
-                          {apiKey ? (
-                            <>
-                              <CheckCircle className="h-4 w-4" />
-                              <span className="truncate">Configurée</span>
-                            </>
-                          ) : (
-                            <>
-                              <XCircle className="h-4 w-4" />
-                              <span>Non configurée</span>
-                            </>
-                          )}
-                        </div>
-                        {apiKey && (
-                          <div className="text-xs text-gray-500 mt-1 truncate">
-                            {apiKey.substring(0, 20)}...
-                          </div>
-                        )}
-                      </div>
-                      <div className="p-3 rounded-md bg-blue-50 transition-colors">
-                        <div className="text-xs text-gray-500 mb-1">Environnement</div>
-                        <div className="font-medium text-blue-600 flex items-center gap-1">
-                          {environment === 'sandbox' ? (
-                            <>
-                              <span className="h-2 w-2 bg-yellow-500 rounded-full"></span>
-                              <span>Sandbox</span>
-                            </>
-                          ) : (
-                            <>
-                              <span className="h-2 w-2 bg-green-500 rounded-full"></span>
-                              <span>Production</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      <div className="p-3 rounded-md bg-gray-50 transition-colors">
-                        <div className="text-xs text-gray-500 mb-1">Base URL</div>
-                        <div className="font-medium text-gray-700 text-sm truncate">
-                          psp-api.fineopay.com
-                        </div>
-                      </div>
-                      <div className="p-3 rounded-md bg-gray-50 transition-colors">
-                        <div className="text-xs text-gray-500 mb-1">Endpoints disponibles</div>
-                        <div className="font-medium text-gray-700">
-                          {endpoints.length}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
+          )}
+        </div>
 
-            {/* Section ApiTester avec ref */}
-            <div ref={apiTesterRef}>
-              {selectedEndpoint && (
-                <div className="mb-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <h2 className="text-lg font-semibold">Testeur d&apos;API</h2>
-                    <div className="text-sm text-gray-500">
-                      {apiKey ? (
-                        <span className="text-green-600 flex items-center gap-1">
-                          <CheckCircle className="h-4 w-4" />
-                          Prêt à tester
-                        </span>
-                      ) : (
-                        <span className="text-red-600 flex items-center gap-1">
-                          <XCircle className="h-4 w-4" />
-                          Configurez d&apos;abord votre API Key
-                        </span>
-                      )}
+        <div className="space-y-6">
+          <ResponseViewer response={response} loading={loading} />
+
+          {requestHistory.length > 0 && (
+            <div className="bg-white rounded-lg shadow">
+              <div className="p-4 border-b">
+                <h3 className="font-semibold">Historique des requêtes</h3>
+              </div>
+              <div className="p-4">
+                <div className="space-y-2">
+                  {requestHistory.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between p-3 border rounded-md hover:bg-gray-50 cursor-pointer"
+                      onClick={() => {
+                        setRequestBody(item.request.body || '');
+                        setQueryParams(item.request.queryParams || {});
+                        setHeaders(item.request.headers || {});
+                        setResponse(item.response);
+                      }}
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`text-xs font-medium px-1.5 py-0.5 rounded ${item.response.status >= 200 && item.response.status < 300
+                              ? 'bg-green-100 text-green-800'
+                              : 'bg-red-100 text-red-800'
+                              }`}
+                          >
+                            {item.response.status}
+                          </span>
+                          <span className="font-mono text-sm">
+                            {item.request.method}
+                          </span>
+                          <span className="text-sm truncate">
+                            {item.request.endpoint}
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          {new Date(item.timestamp).toLocaleTimeString()} •{' '}
+                          {item.response.time}ms
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <ApiTester
-                    endpoint={selectedEndpoint}
-                    environment={environment}
-                    accessToken=""
-                    apiKey={apiKey}
-                  />
+                  ))}
                 </div>
-              )}
+              </div>
             </div>
-          </div>
-        </main>
+          )}
+        </div>
       </div>
     </div>
   );
