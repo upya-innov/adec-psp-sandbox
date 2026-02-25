@@ -8,12 +8,6 @@ import { Play, Save, Copy, RotateCcw, AlertCircle, ToggleLeft, ToggleRight, Info
 
 type Env = 'sandbox' | 'live';
 
-// URLs de l'API
-const API_BASE: Record<Env, string> = {
-  sandbox: 'https://psp-api.fineopay.com/api/v1',
-  live: 'https://psp-api.fineopay.com/api/v1',
-};
-
 type PaymentWorkflow = 'otp' | 'in_app' | undefined;
 
 interface ApiTesterProps {
@@ -40,8 +34,6 @@ export default function ApiTester({
   // Workflow selector pour /payments/initiate
   const isPaymentInitiate = endpoint.path === '/payments/initiate' && endpoint.method === 'POST';
   const [paymentWorkflow, setPaymentWorkflow] = useState<PaymentWorkflow>('otp');
-
-  const baseUrl = API_BASE[environment];
 
   // Fineo PSP: tout est API Key sauf /health
   const getAuthType = (ep: Endpoint): 'apiKey' | 'none' => {
@@ -153,14 +145,6 @@ export default function ApiTester({
     setResponse(null);
 
     try {
-      const url = new URL(`${baseUrl}${endpoint.path}`);
-
-      Object.entries(queryParams).forEach(([key, value]) => {
-        if (typeof value === 'string' && value.trim()) {
-          url.searchParams.append(key, value.trim());
-        }
-      });
-
       const authType = getAuthType(endpoint);
 
       // ✅ Headers par défaut avec x-environment basé sur la sélection
@@ -190,14 +174,9 @@ export default function ApiTester({
 
       const finalHeaders = { ...defaultHeaders, ...sanitizedCustomHeaders };
 
-      const options: RequestInit = {
-        method: endpoint.method,
-        headers: finalHeaders,
-        cache: 'no-cache',
-      };
-
+      // Préparer le body pour le proxy
+      let bodyObj: any = null;
       if (hasBody && requestBody) {
-        let bodyObj: any;
         try {
           bodyObj = JSON.parse(requestBody);
         } catch {
@@ -223,32 +202,36 @@ export default function ApiTester({
             if ('failedRedirectUrl' in bodyObj) delete bodyObj.failedRedirectUrl;
           }
         }
-
-        options.body = JSON.stringify(bodyObj);
       }
 
+      // ✅ Appel au proxy au lieu de l'API directe
       const startTime = Date.now();
-      const apiResponse = await fetch(url.toString(), options);
+      const proxyResponse = await fetch('/api/proxy', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          endpoint: endpoint.path,
+          method: endpoint.method,
+          headers: finalHeaders,
+          body: bodyObj,
+          queryParams,
+          environment,
+        }),
+      });
       const endTime = Date.now();
 
-      let responseData: any;
-      let responseText = '';
-
-      try {
-        responseText = await apiResponse.text();
-        responseData = responseText ? JSON.parse(responseText) : {};
-      } catch {
-        responseData = { raw: responseText };
-      }
+      const responseData = await proxyResponse.json();
 
       const responseInfo = {
-        status: apiResponse.status,
-        statusText: apiResponse.statusText,
-        headers: Object.fromEntries(apiResponse.headers.entries()),
-        data: responseData,
+        status: proxyResponse.status,
+        statusText: proxyResponse.statusText,
+        headers: responseData.headers || {},
+        data: responseData.data || responseData,
         time: endTime - startTime,
-        size: responseText.length,
-        url: url.toString(),
+        size: JSON.stringify(responseData).length,
+        url: `/api/proxy?endpoint=${endpoint.path}`,
       };
 
       setResponse(responseInfo);
@@ -262,7 +245,7 @@ export default function ApiTester({
           body: hasBody ? requestBody : '',
           queryParams,
           headers: finalHeaders,
-          url: url.toString(),
+          url: `/api/proxy`,
           environment,
         },
         response: responseInfo,
@@ -270,8 +253,8 @@ export default function ApiTester({
 
       setRequestHistory((prev) => [historyItem, ...prev.slice(0, 9)]);
 
-      if (!apiResponse.ok) {
-        setError(`Erreur ${apiResponse.status}: ${apiResponse.statusText}`);
+      if (!responseData.success) {
+        setError(`Erreur ${responseInfo.status}: ${responseData.error || 'Unknown error'}`);
       }
     } catch (err: any) {
       setError(err?.message || "Une erreur est survenue lors de l'envoi de la requête");
@@ -342,6 +325,8 @@ export default function ApiTester({
   };
 
   const generateCurlCommand = (): string => {
+    // Pour cURL, on garde l'URL directe (pour les tests hors navigateur)
+    const baseUrl = 'https://psp-api.fineopay.com/api/v1';
     const url = new URL(`${baseUrl}${endpoint.path}`);
     Object.entries(queryParams).forEach(([key, value]) => {
       if (typeof value === 'string' && value.trim()) url.searchParams.append(key, value.trim());
@@ -484,8 +469,8 @@ export default function ApiTester({
 
         <div className="flex items-center gap-4 text-sm text-gray-600">
           <div className="flex items-center gap-1">
-            <span className="font-medium">Base URL:</span>
-            <code className="bg-gray-50 px-2 py-1 rounded">{baseUrl}</code>
+            <span className="font-medium">Mode proxy:</span>
+            <code className="bg-green-50 text-green-700 px-2 py-1 rounded">/api/proxy</code>
           </div>
 
           <div className="flex items-center gap-1">
