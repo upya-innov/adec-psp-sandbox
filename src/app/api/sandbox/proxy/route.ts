@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+type Env = 'sandbox' | 'live';
+
+const API_BASE: Record<Env, string> = {
+  sandbox: 'https://psp-api.fineopay.com/api/v1',
+  live: 'https://psp-api.fineopay.com/api/v1',
+};
+
 export async function POST(request: NextRequest) {
   try {
     const payload = await request.json();
@@ -9,13 +16,19 @@ export async function POST(request: NextRequest) {
       method = 'GET',
       headers = {},
       body: requestBody,
-      queryParams = {}, // optionnel
-    } = payload;
+      queryParams = {},
+      environment = 'sandbox',
+    } = payload as {
+      endpoint: string;
+      method?: string;
+      headers?: Record<string, string>;
+      body?: any;
+      queryParams?: Record<string, any>;
+      environment?: Env;
+    };
 
-    // ✅ Base URL unique FineoPay
-    const baseUrl = 'https://psp-api.fineopay.com/api/v1';
+    const baseUrl = API_BASE[environment];
 
-    // Construire l’URL avec query params
     const url = new URL(`${baseUrl}${endpoint}`);
     Object.entries(queryParams).forEach(([key, value]) => {
       if (value !== undefined && value !== null && value !== '') {
@@ -27,7 +40,7 @@ export async function POST(request: NextRequest) {
       method,
       headers: {
         'Content-Type': 'application/json',
-        ...headers, // Authorization / X-API-Key passent ici
+        ...headers,
       },
       body:
         ['POST', 'PUT', 'PATCH'].includes(method) && requestBody
@@ -35,15 +48,10 @@ export async function POST(request: NextRequest) {
           : undefined,
     });
 
-    // Gérer JSON ou texte brut
     const contentType = response.headers.get('content-type');
-    let data: any;
-
-    if (contentType?.includes('application/json')) {
-      data = await response.json();
-    } else {
-      data = await response.text();
-    }
+    const data = contentType?.includes('application/json')
+      ? await response.json()
+      : await response.text();
 
     return NextResponse.json({
       success: response.ok,
@@ -53,12 +61,8 @@ export async function POST(request: NextRequest) {
     });
   } catch (error: any) {
     console.error('Proxy error:', error);
-
     return NextResponse.json(
-      {
-        success: false,
-        error: error.message || 'Proxy request failed',
-      },
+      { success: false, error: error.message || 'Proxy request failed' },
       { status: 500 }
     );
   }

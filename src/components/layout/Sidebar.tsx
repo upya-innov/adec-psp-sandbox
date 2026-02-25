@@ -1,7 +1,8 @@
+// src/components/layout/sidebar.tsx
 'use client';
 
 import { Endpoint } from '@/types/openapi';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ChevronDown,
   ChevronRight,
@@ -9,6 +10,7 @@ import {
   CreditCard,
   Send,
   Database,
+  ListChecks,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -22,62 +24,107 @@ export default function Sidebar({
   endpoints,
   selectedEndpoint,
   onSelectEndpoint,
-  onScrollToApiTester
+  onScrollToApiTester,
 }: SidebarProps) {
-  const orderedTags = [
+  // ✅ Tags prioritaires (affichés en premier)
+  const preferredOrder = [
     'Payments',
     'Transfers',
+    'Transactions', // ✅ AJOUT
     'Countries',
     'Currencies',
     'Channels',
   ];
 
-  const [expandedTags, setExpandedTags] = useState<Record<string, boolean>>(
+  // Group endpoints by tag
+  const endpointsByTag = useMemo(() => {
+    const map: Record<string, Endpoint[]> = {};
+    endpoints.forEach((endpoint) => {
+      (endpoint.tags || ['Untagged']).forEach((tag) => {
+        if (!map[tag]) map[tag] = [];
+        map[tag].push(endpoint);
+      });
+    });
+
+    // Tri des endpoints dans chaque tag
+    Object.keys(map).forEach((tag) => {
+      map[tag].sort((a, b) => (a.path + a.method).localeCompare(b.path + b.method));
+    });
+
+    return map;
+  }, [endpoints]);
+
+  // ✅ orderedTags = préférés d'abord, puis le reste (dynamiquement)
+  const orderedTags = useMemo(() => {
+    const existingTags = Object.keys(endpointsByTag);
+
+    const rest = existingTags
+      .filter((t) => !preferredOrder.includes(t))
+      .sort((a, b) => a.localeCompare(b));
+
+    // ne garde dans preferredOrder que ceux réellement présents
+    const preferredPresent = preferredOrder.filter((t) => existingTags.includes(t));
+
+    return [...preferredPresent, ...rest];
+  }, [endpointsByTag]);
+
+  const [expandedTags, setExpandedTags] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(orderedTags.map((t, i) => [t, i < 6]))
   );
 
-  const endpointsByTag: Record<string, Endpoint[]> = {};
-  endpoints.forEach(endpoint => {
-    endpoint.tags.forEach(tag => {
-      if (!endpointsByTag[tag]) endpointsByTag[tag] = [];
-      endpointsByTag[tag].push(endpoint);
+  // Si orderedTags change (par ex openapi reload), on merge proprement
+  useMemo(() => {
+    setExpandedTags((prev) => {
+      const next: Record<string, boolean> = {};
+      orderedTags.forEach((t, i) => {
+        next[t] = prev[t] ?? i < 6;
+      });
+      return next;
     });
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderedTags.join('|')]);
 
   const getTagIcon = (tag: string) => {
     switch (tag) {
-      case 'Payments': return <CreditCard className="h-4 w-4" />;
-      case 'Transfers': return <Send className="h-4 w-4" />;
+      case 'Payments':
+        return <CreditCard className="h-4 w-4" />;
+      case 'Transfers':
+        return <Send className="h-4 w-4" />;
+      case 'Transactions':
+        return <ListChecks className="h-4 w-4" />;
       case 'Countries':
       case 'Currencies':
       case 'Channels':
         return <Globe className="h-4 w-4" />;
-      default: return <Database className="h-4 w-4" />;
+      default:
+        return <Database className="h-4 w-4" />;
     }
   };
 
   const getMethodColor = (method: string) => {
     switch (method) {
-      case 'GET': return 'bg-blue-100 text-blue-800';
-      case 'POST': return 'bg-green-100 text-green-800';
-      case 'PUT': return 'bg-yellow-100 text-yellow-800';
-      case 'PATCH': return 'bg-yellow-100 text-yellow-800';
-      case 'DELETE': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
+      case 'GET':
+        return 'bg-blue-100 text-blue-800';
+      case 'POST':
+        return 'bg-green-100 text-green-800';
+      case 'PUT':
+        return 'bg-yellow-100 text-yellow-800';
+      case 'PATCH':
+        return 'bg-yellow-100 text-yellow-800';
+      case 'DELETE':
+        return 'bg-red-100 text-red-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
     }
   };
 
   const toggleTag = (tag: string) => {
-    setExpandedTags(prev => ({ ...prev, [tag]: !prev[tag] }));
+    setExpandedTags((prev) => ({ ...prev, [tag]: !prev[tag] }));
   };
 
   const handleEndpointClick = (endpoint: Endpoint) => {
     onSelectEndpoint(endpoint);
-
-    // Scroller vers ApiTester si la fonction est fournie
-    if (onScrollToApiTester) {
-      onScrollToApiTester();
-    }
+    if (onScrollToApiTester) onScrollToApiTester();
   };
 
   return (
@@ -86,17 +133,18 @@ export default function Sidebar({
         <h3 className="font-semibold text-gray-900 mb-4">API Endpoints</h3>
 
         <div className="space-y-2">
-          {orderedTags.map(tag => {
+          {orderedTags.map((tag) => {
             const tagEndpoints = endpointsByTag[tag] || [];
             if (tagEndpoints.length === 0) return null;
 
-            const isExpanded = expandedTags[tag];
+            const isExpanded = !!expandedTags[tag];
 
             return (
               <div key={tag} className="space-y-1">
                 <button
                   onClick={() => toggleTag(tag)}
                   className="flex items-center justify-between w-full p-2 hover:bg-gray-100 rounded-md transition-colors"
+                  type="button"
                 >
                   <div className="flex items-center gap-2">
                     {getTagIcon(tag)}
@@ -105,7 +153,11 @@ export default function Sidebar({
                       {tagEndpoints.length}
                     </span>
                   </div>
-                  {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                  {isExpanded ? (
+                    <ChevronDown className="h-4 w-4" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4" />
+                  )}
                 </button>
 
                 {isExpanded && (
@@ -120,11 +172,16 @@ export default function Sidebar({
                           key={`${endpoint.path}-${endpoint.method}-${index}`}
                           onClick={() => handleEndpointClick(endpoint)}
                           className={`flex items-center gap-2 w-full p-2 text-sm rounded-md text-left transition-colors ${isSelected
-                            ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                            : 'hover:bg-gray-50 text-gray-700'
+                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                              : 'hover:bg-gray-50 text-gray-700'
                             }`}
+                          type="button"
                         >
-                          <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${getMethodColor(endpoint.method)}`}>
+                          <span
+                            className={`text-xs font-medium px-1.5 py-0.5 rounded ${getMethodColor(
+                              endpoint.method
+                            )}`}
+                          >
                             {endpoint.method}
                           </span>
                           <span className="truncate">{endpoint.summary}</span>
@@ -138,10 +195,9 @@ export default function Sidebar({
           })}
         </div>
 
-        {/* Info pour le scroll */}
         <div className="mt-8 p-3 bg-blue-50 border border-blue-100 rounded-md">
           <p className="text-xs text-blue-800">
-            <span className="font-medium">Astuce :</span> Cliquez sur un endpoint pour tester directement l'API
+            <span className="font-medium">Astuce :</span> Cliquez sur un endpoint pour tester directement l&apos;API
           </p>
         </div>
       </div>

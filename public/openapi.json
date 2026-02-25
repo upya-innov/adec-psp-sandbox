@@ -1,709 +1,830 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "title": "Payment Processor API",
+    "title": "FineoPay PSP API",
     "version": "1.0.0",
-    "description": "Complete API for the Payment Processor platform supporting payments, transfers, and multi-tenant management"
+    "description": "API FineoPay PSP (Payment Service Provider) — Payments, Transfers, Webhooks, Transactions (aligned with Postman collection)"
   },
   "servers": [
     {
-      "url": "http://localhost:3000",
-      "description": "Local development server"
+      "url": "https://psp-api.fineopay.com/api/v1",
+      "description": "Production / Live"
     }
   ],
   "tags": [
-    { "name": "Payments" },
-    { "name": "Transfers" },
-    { "name": "Countries" },
-    { "name": "Channels" },
-    { "name": "Currencies" },
-    { "name": "Partners" }
+    {
+      "name": "Payments"
+    },
+    {
+      "name": "Transfers"
+    },
+    {
+      "name": "Transactions"
+    },
+    {
+      "name": "Webhooks"
+    },
+    {
+      "name": "Balance"
+    },
+    {
+      "name": "System"
+    }
+  ],
+  "security": [
+    {
+      "apiKeyAuth": []
+    }
   ],
   "paths": {
-    "/payments/initiate": {
-      "post": {
-        "tags": ["Payments"],
-        "summary": "Initiate Payment (API Key)",
-        "description": "Initiate a payment using API Key authentication",
-        "security": [{ "apiKeyAuth": [] }],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "transaction_id": { 
-                    "type": "string",
-                    "description": "Unique identifier for the transaction (max 50 characters)"
-                  },
-                  "amount": { 
-                    "type": "number",
-                    "minimum": 1,
-                    "description": "Amount to be paid"
-                  },
-                  "currency": { 
-                    "type": "string",
-                    "description": "Currency code (e.g., XOF, EUR, USD)"
-                  },
-                  "country": { 
-                    "type": "string",
-                    "description": "Country code (e.g., CI, SN, ML)"
-                  },
-                  "channel": { 
-                    "type": "string",
-                    "description": "Payment channel (e.g., orange_money, mtn_momo, wave)"
-                  },
-                  "customer": {
-                    "type": "object",
-                    "properties": {
-                      "phone_number": { 
-                        "type": "string",
-                        "description": "Customer's phone number (required for mobile money)"
-                      },
-                      "email": { 
-                        "type": "string", 
-                        "format": "email",
-                        "description": "Customer's email address"
-                      },
-                      "name": { 
-                        "type": "string",
-                        "description": "Customer's full name"
-                      }
-                    },
-                    "required": ["phone_number"]
-                  },
-                  "description": { 
-                    "type": "string",
-                    "description": "Description of the payment"
-                  },
-                  "metadata": {
-                    "type": "object",
-                    "additionalProperties": true,
-                    "description": "Additional metadata for the payment"
-                  },
-                  "callback_url": {
-                    "type": "string",
-                    "format": "uri",
-                    "description": "URL to receive payment status updates via webhook"
-                  }
-                },
-                "required": ["transaction_id", "amount", "currency", "country", "channel", "customer"]
-              },
-              "example": {
-                "transaction_id": "TX-1705234567890",
-                "amount": 1000,
-                "currency": "XOF",
-                "country": "CI",
-                "channel": "orange_money",
-                "customer": {
-                  "phone_number": "2250700000000",
-                  "email": "customer@example.com",
-                  "name": "John Doe"
-                },
-                "description": "Payment for order #12345",
-                "metadata": {
-                  "order_id": "12345",
-                  "product": "Premium Subscription"
-                },
-                "callback_url": "https://webhook.example.com/payments"
-              }
-            }
-          }
-        },
+    "/health": {
+      "get": {
+        "tags": ["System"],
+        "summary": "Health Check",
+        "description": "Check API health status (no authentication required)",
+        "security": [],
         "responses": {
-          "201": { 
-            "description": "Payment initiated successfully",
+          "200": {
+            "description": "OK",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "transaction_id": { "type": "string" },
-                    "status": { "type": "string" },
-                    "amount": { "type": "number" },
-                    "currency": { "type": "string" },
-                    "payment_url": { "type": "string", "format": "uri" },
-                    "expires_at": { "type": "string", "format": "date-time" },
-                    "created_at": { "type": "string", "format": "date-time" }
+                    "status": {
+                      "type": "string",
+                      "example": "ok"
+                    },
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
                   }
                 }
               }
             }
-          },
-          "400": { "description": "Bad Request" },
-          "401": { "description": "Unauthorized - Invalid API Key" },
-          "500": { "description": "Server Error" }
+          }
         }
       }
     },
-     "/payments": {
+    "/payments": {
       "get": {
         "tags": ["Payments"],
-        "summary": "Query Payments",
-        "description": "Retrieve payments with filtering options using API Key authentication",
-        "security": [{ "apiKeyAuth": [] }],
+        "summary": "List Payments",
+        "description": "Retrieve payments with pagination.",
         "parameters": [
           {
-            "name": "status",
+            "name": "page",
             "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
             "required": false,
-            "schema": { "type": "string" },
-            "description": "Filter by payment status (e.g., pending, completed, failed, cancelled)"
+            "description": "Page number"
           },
           {
             "name": "limit",
             "in": "query",
-            "required": false,
-            "schema": { 
+            "schema": {
               "type": "integer",
-              "default": 50,
-              "maximum": 100
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
             },
-            "description": "Maximum number of payments to return"
+            "required": false,
+            "description": "Items per page"
           },
           {
-            "name": "offset",
+            "name": "status",
             "in": "query",
-            "required": false,
-            "schema": { 
-              "type": "integer",
-              "default": 0,
-              "minimum": 0
+            "schema": {
+              "type": "string"
             },
-            "description": "Number of payments to skip"
-          },
-          {
-            "name": "start_date",
-            "in": "query",
             "required": false,
-            "schema": { 
-              "type": "string",
-              "format": "date"
-            },
-            "description": "Filter payments created on or after this date (YYYY-MM-DD)"
-          },
-          {
-            "name": "end_date",
-            "in": "query",
-            "required": false,
-            "schema": { 
-              "type": "string",
-              "format": "date"
-            },
-            "description": "Filter payments created on or before this date (YYYY-MM-DD)"
-          },
-          {
-            "name": "transaction_id",
-            "in": "query",
-            "required": false,
-            "schema": { "type": "string" },
-            "description": "Filter by specific transaction ID"
-          },
-          {
-            "name": "customer_phone",
-            "in": "query",
-            "required": false,
-            "schema": { "type": "string" },
-            "description": "Filter by customer phone number"
-          },
-          {
-            "name": "customer_email",
-            "in": "query",
-            "required": false,
-            "schema": { "type": "string" },
-            "description": "Filter by customer email"
-          },
-          {
-            "name": "amount_min",
-            "in": "query",
-            "required": false,
-            "schema": { "type": "number" },
-            "description": "Filter by minimum amount"
-          },
-          {
-            "name": "amount_max",
-            "in": "query",
-            "required": false,
-            "schema": { "type": "number" },
-            "description": "Filter by maximum amount"
+            "description": "Filter by status"
           }
         ],
         "responses": {
-          "200": { 
+          "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
                     "data": {
                       "type": "array",
                       "items": {
-                        "type": "object",
-                        "properties": {
-                          "transaction_id": { "type": "string" },
-                          "amount": { "type": "number" },
-                          "currency": { "type": "string" },
-                          "status": { "type": "string" },
-                          "created_at": { "type": "string", "format": "date-time" },
-                          "customer": {
-                            "type": "object",
-                            "properties": {
-                              "phone_number": { "type": "string" },
-                              "email": { "type": "string" },
-                              "name": { "type": "string" }
-                            }
-                          }
-                        }
+                        "$ref": "#/components/schemas/Payment"
                       }
                     },
                     "pagination": {
-                      "type": "object",
-                      "properties": {
-                        "total": { "type": "integer" },
-                        "limit": { "type": "integer" },
-                        "offset": { "type": "integer" },
-                        "has_more": { "type": "boolean" }
-                      }
+                      "$ref": "#/components/schemas/Pagination"
                     }
                   }
                 }
               }
             }
           },
-          "400": { "description": "Bad Request" },
-          "401": { "description": "Unauthorized - Invalid API Key" },
-          "500": { "description": "Server Error" }
+          "401": {
+            "description": "Unauthorized - Invalid API Key"
+          },
+          "500": {
+            "description": "Server Error"
+          }
         }
       }
     },
-    "/payments/{transactionId}": {
+    "/payments/initiate": {
+      "post": {
+        "tags": ["Payments"],
+        "summary": "Initiate Payment",
+        "description": "Initiate a payment (OTP or in_app workflow).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PaymentInitiateRequest"
+              },
+              "examples": {
+                "otp": {
+                  "summary": "OTP workflow",
+                  "value": {
+                    "merchantReference": "order-123",
+                    "amount": 5000,
+                    "currency": "XOF",
+                    "channel": "mtn_momo",
+                    "country": "CI",
+                    "customer": {
+                      "phoneNumber": "+2250700000000",
+                      "email": "customer@example.com",
+                      "name": "John Doe"
+                    },
+                    "workflow": "otp",
+                    "description": "Payment for order #123",
+                    "metadata": {
+                      "orderId": "123"
+                    },
+                    "otp": ""
+                  }
+                },
+                "in_app": {
+                  "summary": "In-app workflow",
+                  "value": {
+                    "merchantReference": "order-124",
+                    "amount": 5000,
+                    "currency": "XOF",
+                    "channel": "wave",
+                    "country": "CI",
+                    "customer": {
+                      "phoneNumber": "+2250700000000",
+                      "email": "customer@example.com",
+                      "name": "John Doe"
+                    },
+                    "workflow": "in_app",
+                    "successRedirectUrl": "https://myapp.com/payment/success",
+                    "failedRedirectUrl": "https://myapp.com/payment/failed",
+                    "description": "Payment for order #124",
+                    "metadata": {
+                      "orderId": "124"
+                    }
+                  }
+                },
+                "no_workflow": {
+                  "summary": "No workflow (legacy)",
+                  "value": {
+                    "merchantReference": "order-125",
+                    "amount": 5000,
+                    "currency": "XOF",
+                    "channel": "orange_money",
+                    "country": "CI",
+                    "customer": {
+                      "phoneNumber": "+2250700000000",
+                      "email": "customer@example.com",
+                      "name": "John Doe"
+                    },
+                    "description": "Payment for order #125",
+                    "metadata": {
+                      "orderId": "125"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Payment initiated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "transactionId": {
+                      "type": "string"
+                    },
+                    "reference": {
+                      "type": "string"
+                    },
+                    "merchantReference": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "amount": {
+                      "type": "number"
+                    },
+                    "currency": {
+                      "type": "string"
+                    },
+                    "environment": {
+                      "type": "string"
+                    },
+                    "partner": {
+                      "type": "string"
+                    },
+                    "partnerTransactionId": {
+                      "type": "string"
+                    },
+                    "validationData": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized - Invalid API Key"
+          },
+          "500": {
+            "description": "Server Error"
+          }
+        }
+      }
+    },
+    "/payments/{transactionId}/status": {
       "get": {
         "tags": ["Payments"],
         "summary": "Get Payment Status",
-        "description": "Get payment status by transaction ID",
-        "security": [{ "apiKeyAuth": [] }],
+        "description": "Get payment status by transactionId.",
         "parameters": [
           {
             "name": "transactionId",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" },
-            "description": "Transaction ID of the payment"
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
-          "200": { 
+          "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "transaction_id": { "type": "string" },
-                    "status": { "type": "string" },
-                    "amount": { "type": "number" },
-                    "currency": { "type": "string" },
-                    "country": { "type": "string" },
-                    "channel": { "type": "string" },
-                    "customer": {
-                      "type": "object",
-                      "properties": {
-                        "phone_number": { "type": "string" },
-                        "email": { "type": "string" },
-                        "name": { "type": "string" }
-                      }
+                    "success": {
+                      "type": "boolean"
                     },
-                    "description": { "type": "string" },
-                    "metadata": {
-                      "type": "object",
-                      "additionalProperties": true
-                    },
-                    "created_at": { "type": "string", "format": "date-time" },
-                    "updated_at": { "type": "string", "format": "date-time" },
-                    "completed_at": { "type": "string", "format": "date-time" }
+                    "data": {
+                      "$ref": "#/components/schemas/Payment"
+                    }
                   }
                 }
               }
             }
           },
-          "401": { "description": "Unauthorized - Invalid API Key" },
-          "404": { "description": "Payment not found" },
-          "500": { "description": "Server Error" }
+          "401": {
+            "description": "Unauthorized - Invalid API Key"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Server Error"
+          }
         }
       }
     },
-    "/payments/{transactionId}/cancel": {
-      "patch": {
-        "tags": ["Payments"],
-        "summary": "Cancel Payment",
-        "description": "Cancel a payment",
-        "security": [{ "apiKeyAuth": [] }],
+    "/transfers": {
+      "get": {
+        "tags": ["Transfers"],
+        "summary": "List Transfers",
+        "description": "Retrieve transfers with pagination.",
         "parameters": [
           {
-            "name": "transactionId",
-            "in": "path",
-            "required": true,
-            "schema": { "type": "string" },
-            "description": "Transaction ID of the payment to cancel"
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "required": false,
+            "description": "Page number"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "required": false,
+            "description": "Items per page"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Filter by status"
           }
         ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "reason": { 
-                    "type": "string",
-                    "description": "Reason for cancellation"
-                  }
-                },
-                "required": ["reason"]
-              },
-              "example": {
-                "reason": "Customer requested cancellation"
-              }
-            }
-          }
-        },
         "responses": {
-          "200": { 
-            "description": "Payment cancelled successfully",
+          "200": {
+            "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "transaction_id": { "type": "string" },
-                    "status": { "type": "string" },
-                    "cancelled_at": { "type": "string", "format": "date-time" },
-                    "cancellation_reason": { "type": "string" }
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Transfer"
+                      }
+                    },
+                    "pagination": {
+                      "$ref": "#/components/schemas/Pagination"
+                    }
                   }
                 }
               }
             }
           },
-          "400": { "description": "Bad Request - Payment cannot be cancelled" },
-          "401": { "description": "Unauthorized - Invalid API Key" },
-          "404": { "description": "Payment not found" },
-          "500": { "description": "Server Error" }
+          "401": {
+            "description": "Unauthorized - Invalid API Key"
+          },
+          "500": {
+            "description": "Server Error"
+          }
         }
       }
     },
     "/transfers/initiate": {
       "post": {
         "tags": ["Transfers"],
-        "summary": "Initiate Transfer (API Key)",
-        "description": "Initiate a transfer using API Key authentication",
-        "security": [{ "apiKeyAuth": [] }],
+        "summary": "Initiate Transfer",
+        "description": "Initiate a transfer.",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "transfer_id": { 
-                    "type": "string",
-                    "description": "Unique identifier for the transfer (max 50 characters)"
-                  },
-                  "amount": { 
-                    "type": "number",
-                    "minimum": 1,
-                    "description": "Amount to be transferred"
-                  },
-                  "currency": { 
-                    "type": "string",
-                    "description": "Currency code (e.g., XOF, EUR, USD)"
-                  },
-                  "country": { 
-                    "type": "string",
-                    "description": "Country code (e.g., CI, SN, ML)"
-                  },
-                  "channel": { 
-                    "type": "string",
-                    "description": "Transfer channel (e.g., orange_money, mtn_momo, wave)"
-                  },
-                  "recipient": {
-                    "type": "object",
-                    "properties": {
-                      "phone_number": { 
-                        "type": "string",
-                        "description": "Recipient's phone number (required for mobile money)"
-                      },
-                      "name": { 
-                        "type": "string",
-                        "description": "Recipient's full name"
-                      }
-                    },
-                    "required": ["phone_number"]
-                  },
-                  "description": { 
-                    "type": "string",
-                    "description": "Description of the transfer"
-                  },
-                  "metadata": {
-                    "type": "object",
-                    "additionalProperties": true,
-                    "description": "Additional metadata for the transfer"
-                  },
-                  "callback_url": {
-                    "type": "string",
-                    "format": "uri",
-                    "description": "URL to receive transfer status updates via webhook"
-                  }
-                },
-                "required": ["transfer_id", "amount", "currency", "country", "channel", "recipient"]
+                "$ref": "#/components/schemas/TransferInitiateRequest"
               },
               "example": {
-                "transfer_id": "TR-1705234567891",
-                "amount": 2500,
+                "merchantReference": "transfer-123",
+                "amount": 5000,
                 "currency": "XOF",
-                "country": "BJ",
                 "channel": "mtn_momo",
+                "country": "CI",
                 "recipient": {
-                  "phone_number": "22960000000",
-                  "name": "Alice Johnson"
+                  "phoneNumber": "+2250700000000",
+                  "name": "Jane Doe"
                 },
-                "description": "Payout for service rendered",
-                "metadata": {
-                  "payout_reason": "freelance_payment",
-                  "contract_id": "CON-789"
-                },
-                "callback_url": "https://webhook.example.com/transfers"
+                "description": "Payout to supplier",
+                "metadata": {}
               }
             }
           }
         },
         "responses": {
-          "201": { 
-            "description": "Transfer initiated successfully",
+          "201": {
+            "description": "Transfer initiated",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "transfer_id": { "type": "string" },
-                    "status": { "type": "string" },
-                    "amount": { "type": "number" },
-                    "currency": { "type": "string" },
-                    "estimated_completion": { "type": "string", "format": "date-time" },
-                    "created_at": { "type": "string", "format": "date-time" }
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/Transfer"
+                    }
                   }
                 }
               }
             }
           },
-          "400": { "description": "Bad Request" },
-          "401": { "description": "Unauthorized - Invalid API Key" },
-          "500": { "description": "Server Error" }
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized - Invalid API Key"
+          },
+          "500": {
+            "description": "Server Error"
+          }
         }
       }
     },
-     "/transfers": {
+    "/transfers/{transferId}/status": {
       "get": {
         "tags": ["Transfers"],
-        "summary": "Query Transfers",
-        "description": "Retrieve transfers with filtering options using API Key authentication",
-        "security": [{ "apiKeyAuth": [] }],
+        "summary": "Get Transfer Status",
+        "description": "Get transfer status by transferId.",
         "parameters": [
           {
-            "name": "status",
+            "name": "transferId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/Transfer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - Invalid API Key"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Server Error"
+          }
+        }
+      }
+    },
+    "/transactions": {
+      "get": {
+        "tags": ["Transactions"],
+        "summary": "List Transactions",
+        "description": "Retrieve transactions with pagination.",
+        "parameters": [
+          {
+            "name": "page",
             "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
             "required": false,
-            "schema": { "type": "string" },
-            "description": "Filter by transfer status (e.g., pending, completed, failed, cancelled)"
+            "description": "Page number"
           },
           {
             "name": "limit",
             "in": "query",
-            "required": false,
-            "schema": { 
+            "schema": {
               "type": "integer",
-              "default": 50,
-              "maximum": 100
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
             },
-            "description": "Maximum number of transfers to return"
+            "required": false,
+            "description": "Items per page"
           },
           {
-            "name": "offset",
+            "name": "status",
             "in": "query",
-            "required": false,
-            "schema": { 
-              "type": "integer",
-              "default": 0,
-              "minimum": 0
+            "schema": {
+              "type": "string"
             },
-            "description": "Number of transfers to skip"
+            "required": false,
+            "description": "Filter by status"
           },
           {
-            "name": "start_date",
+            "name": "transactionType",
             "in": "query",
-            "required": false,
-            "schema": { 
-              "type": "string",
-              "format": "date"
+            "schema": {
+              "type": "string"
             },
-            "description": "Filter transfers created on or after this date (YYYY-MM-DD)"
-          },
-          {
-            "name": "end_date",
-            "in": "query",
             "required": false,
-            "schema": { 
-              "type": "string",
-              "format": "date"
-            },
-            "description": "Filter transfers created on or before this date (YYYY-MM-DD)"
-          },
-          {
-            "name": "transfer_id",
-            "in": "query",
-            "required": false,
-            "schema": { "type": "string" },
-            "description": "Filter by specific transfer ID"
-          },
-          {
-            "name": "recipient_phone",
-            "in": "query",
-            "required": false,
-            "schema": { "type": "string" },
-            "description": "Filter by recipient phone number"
-          },
-          {
-            "name": "amount_min",
-            "in": "query",
-            "required": false,
-            "schema": { "type": "number" },
-            "description": "Filter by minimum amount"
-          },
-          {
-            "name": "amount_max",
-            "in": "query",
-            "required": false,
-            "schema": { "type": "number" },
-            "description": "Filter by maximum amount"
+            "description": "Filter by transaction type"
           }
         ],
         "responses": {
-          "200": { 
+          "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
                     "data": {
                       "type": "array",
                       "items": {
-                        "type": "object",
-                        "properties": {
-                          "transfer_id": { "type": "string" },
-                          "amount": { "type": "number" },
-                          "currency": { "type": "string" },
-                          "status": { "type": "string" },
-                          "created_at": { "type": "string", "format": "date-time" },
-                          "recipient": {
-                            "type": "object",
-                            "properties": {
-                              "phone_number": { "type": "string" },
-                              "name": { "type": "string" }
-                            }
-                          }
-                        }
+                        "$ref": "#/components/schemas/Transaction"
                       }
                     },
                     "pagination": {
-                      "type": "object",
-                      "properties": {
-                        "total": { "type": "integer" },
-                        "limit": { "type": "integer" },
-                        "offset": { "type": "integer" },
-                        "has_more": { "type": "boolean" }
-                      }
+                      "$ref": "#/components/schemas/Pagination"
                     }
                   }
                 }
               }
             }
           },
-          "400": { "description": "Bad Request" },
-          "401": { "description": "Unauthorized - Invalid API Key" },
-          "500": { "description": "Server Error" }
+          "401": {
+            "description": "Unauthorized - Invalid API Key"
+          },
+          "500": {
+            "description": "Server Error"
+          }
         }
       }
     },
-    "/transfers/{transferId}": {
+    "/transactions/{transactionId}": {
       "get": {
-        "tags": ["Transfers"],
-        "summary": "Get Transfer Status",
-        "description": "Get transfer status by transfer ID",
-        "security": [{ "apiKeyAuth": [] }],
+        "tags": ["Transactions"],
+        "summary": "Get Transaction",
+        "description": "Get a transaction by transactionId.",
         "parameters": [
           {
-            "name": "transferId",
+            "name": "transactionId",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" },
-            "description": "Transfer ID of the transfer"
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
-          "200": { 
+          "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "transfer_id": { "type": "string" },
-                    "status": { "type": "string" },
-                    "amount": { "type": "number" },
-                    "currency": { "type": "string" },
-                    "country": { "type": "string" },
-                    "channel": { "type": "string" },
-                    "recipient": {
-                      "type": "object",
-                      "properties": {
-                        "phone_number": { "type": "string" },
-                        "name": { "type": "string" }
-                      }
+                    "success": {
+                      "type": "boolean"
                     },
-                    "description": { "type": "string" },
-                    "metadata": {
-                      "type": "object",
-                      "additionalProperties": true
-                    },
-                    "created_at": { "type": "string", "format": "date-time" },
-                    "updated_at": { "type": "string", "format": "date-time" },
-                    "completed_at": { "type": "string", "format": "date-time" }
+                    "data": {
+                      "$ref": "#/components/schemas/Transaction"
+                    }
                   }
                 }
               }
             }
           },
-          "401": { "description": "Unauthorized - Invalid API Key" },
-          "404": { "description": "Transfer not found" },
-          "500": { "description": "Server Error" }
+          "401": {
+            "description": "Unauthorized - Invalid API Key"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Server Error"
+          }
         }
       }
     },
-    "/transfers/{transferId}/cancel": {
-      "patch": {
-        "tags": ["Transfers"],
-        "summary": "Cancel Transfer",
-        "description": "Cancel a transfer",
-        "security": [{ "apiKeyAuth": [] }],
+    "/webhooks": {
+      "post": {
+        "tags": ["Webhooks"],
+        "summary": "Create Webhook",
+        "description": "Create a new webhook endpoint.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookCreateRequest"
+              },
+              "examples": {
+                "default": {
+                  "summary": "Payment notifications webhook",
+                  "value": {
+                    "name": "Payment Notifications",
+                    "webhookUrl": "https://myapp.com/webhooks/payments",
+                    "eventTypes": ["payment.completed", "payment.failed"],
+                    "transactionTypes": ["payment", "transfer"],
+                    "isActive": true,
+                    "maxRetries": 6,
+                    "timeoutSeconds": 30
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Webhook created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/Webhook"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized - Invalid API Key"
+          },
+          "500": {
+            "description": "Server Error"
+          }
+        }
+      },
+      "get": {
+        "tags": ["Webhooks"],
+        "summary": "List Webhooks",
+        "description": "Retrieve all webhooks with pagination.",
         "parameters": [
           {
-            "name": "transferId",
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "required": false,
+            "description": "Page number"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "required": false,
+            "description": "Items per page"
+          },
+          {
+            "name": "isActive",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "required": false,
+            "description": "Filter by active status"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Webhook"
+                      }
+                    },
+                    "pagination": {
+                      "$ref": "#/components/schemas/Pagination"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - Invalid API Key"
+          },
+          "500": {
+            "description": "Server Error"
+          }
+        }
+      }
+    },
+    "/webhooks/{id}": {
+      "get": {
+        "tags": ["Webhooks"],
+        "summary": "Get Webhook",
+        "description": "Get a webhook by ID.",
+        "parameters": [
+          {
+            "name": "id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" },
-            "description": "Transfer ID of the transfer to cancel"
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/Webhook"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - Invalid API Key"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Server Error"
+          }
+        }
+      },
+      "patch": {
+        "tags": ["Webhooks"],
+        "summary": "Update Webhook",
+        "description": "Update a webhook by ID.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -713,66 +834,165 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "reason": { 
+                  "name": {
+                    "type": "string"
+                  },
+                  "webhookUrl": {
                     "type": "string",
-                    "description": "Reason for cancellation"
+                    "format": "uri"
+                  },
+                  "eventTypes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "transactionTypes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "isActive": {
+                    "type": "boolean"
+                  },
+                  "maxRetries": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10
+                  },
+                  "timeoutSeconds": {
+                    "type": "integer",
+                    "minimum": 5,
+                    "maximum": 60
                   }
-                },
-                "required": ["reason"]
+                }
               },
               "example": {
-                "reason": "Incorrect recipient details"
+                "name": "Updated Webhook Name",
+                "isActive": false
               }
             }
           }
         },
         "responses": {
-          "200": { 
-            "description": "Transfer cancelled successfully",
+          "200": {
+            "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "transfer_id": { "type": "string" },
-                    "status": { "type": "string" },
-                    "cancelled_at": { "type": "string", "format": "date-time" },
-                    "cancellation_reason": { "type": "string" }
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/Webhook"
+                    }
                   }
                 }
               }
             }
           },
-          "400": { "description": "Bad Request - Transfer cannot be cancelled" },
-          "401": { "description": "Unauthorized - Invalid API Key" },
-          "404": { "description": "Transfer not found" },
-          "500": { "description": "Server Error" }
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized - Invalid API Key"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Server Error"
+          }
         }
-      }
-    },
-    "/countries": {
-      "get": {
-        "tags": ["Countries"],
-        "summary": "List Countries",
-        "description": "List all available countries",
+      },
+      "delete": {
+        "tags": ["Webhooks"],
+        "summary": "Delete Webhook",
+        "description": "Delete a webhook by ID.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
-          "200": { 
+          "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "id": { "type": "string" },
-                      "name": { "type": "string" },
-                      "code": { "type": "string" },
-                      "currency": { "type": "string" },
-                      "phone_code": { "type": "string" },
-                      "supported_channels": {
-                        "type": "array",
-                        "items": { "type": "string" }
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - Invalid API Key"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Server Error"
+          }
+        }
+      }
+    },
+    "/balances": {
+      "get": {
+        "tags": ["Balance"],
+        "summary": "Get Account Balance",
+        "description": "Returns balances for the account associated with the API key.",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Optional. Defaults to the main account linked to the API key."
+          },
+          {
+            "name": "currencyId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Optional. Filter by currency UUID."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Balance"
                       }
                     }
                   }
@@ -780,228 +1000,15 @@
               }
             }
           },
-          "500": { "description": "Server Error" }
-        }
-      }
-    },
-    "/countries/{id}": {
-      "get": {
-        "tags": ["Countries"],
-        "summary": "Get Country",
-        "description": "Get details of a specific country",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": { "type": "string" },
-            "description": "Country ID or code"
+          "401": {
+            "description": "Unauthorized - Invalid API Key"
+          },
+          "500": {
+            "description": "Server Error"
           }
-        ],
-        "responses": {
-          "200": { 
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "id": { "type": "string" },
-                    "name": { "type": "string" },
-                    "code": { "type": "string" },
-                    "currency": { "type": "string" },
-                    "phone_code": { "type": "string" },
-                    "supported_channels": {
-                      "type": "array",
-                      "items": { "type": "string" }
-                    },
-                    "regulations": {
-                      "type": "object",
-                      "additionalProperties": true
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "404": { "description": "Country not found" },
-          "500": { "description": "Server Error" }
-        }
-      }
-    },
-    "/channels": {
-      "get": {
-        "tags": ["Channels"],
-        "summary": "List Channels",
-        "description": "List all available payment channels",
-        "responses": {
-          "200": { 
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "id": { "type": "string" },
-                      "name": { "type": "string" },
-                      "code": { "type": "string" },
-                      "type": { "type": "string" },
-                      "supported_countries": {
-                        "type": "array",
-                        "items": { "type": "string" }
-                      },
-                      "supported_currencies": {
-                        "type": "array",
-                        "items": { "type": "string" }
-                      },
-                      "min_amount": { "type": "number" },
-                      "max_amount": { "type": "number" },
-                      "processing_time": { "type": "string" }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": { "description": "Server Error" }
-        }
-      }
-    },
-    "/channels/{id}": {
-      "get": {
-        "tags": ["Channels"],
-        "summary": "Get Channel",
-        "description": "Get details of a specific channel",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": { "type": "string" },
-            "description": "Channel ID or code"
-          }
-        ],
-        "responses": {
-          "200": { 
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "id": { "type": "string" },
-                    "name": { "type": "string" },
-                    "code": { "type": "string" },
-                    "type": { "type": "string" },
-                    "description": { "type": "string" },
-                    "supported_countries": {
-                      "type": "array",
-                      "items": { "type": "string" }
-                    },
-                    "supported_currencies": {
-                      "type": "array",
-                      "items": { "type": "string" }
-                    },
-                    "min_amount": { "type": "number" },
-                    "max_amount": { "type": "number" },
-                    "processing_time": { "type": "string" },
-                    "fee_structure": {
-                      "type": "object",
-                      "additionalProperties": true
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "404": { "description": "Channel not found" },
-          "500": { "description": "Server Error" }
-        }
-      }
-    },
-    "/currencies": {
-      "get": {
-        "tags": ["Currencies"],
-        "summary": "List Currencies",
-        "description": "List all available currencies",
-        "responses": {
-          "200": { 
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "id": { "type": "string" },
-                      "code": { "type": "string" },
-                      "name": { "type": "string" },
-                      "symbol": { "type": "string" },
-                      "decimals": { "type": "integer" },
-                      "supported_countries": {
-                        "type": "array",
-                        "items": { "type": "string" }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": { "description": "Server Error" }
-        }
-      }
-    },
-    "/currencies/{id}": {
-      "get": {
-        "tags": ["Currencies"],
-        "summary": "Get Currency",
-        "description": "Get details of a specific currency",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": { "type": "string" },
-            "description": "Currency ID or code"
-          }
-        ],
-        "responses": {
-          "200": { 
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "id": { "type": "string" },
-                    "code": { "type": "string" },
-                    "name": { "type": "string" },
-                    "symbol": { "type": "string" },
-                    "decimals": { "type": "integer" },
-                    "supported_countries": {
-                      "type": "array",
-                      "items": { "type": "string" }
-                    },
-                    "exchange_rates": {
-                      "type": "object",
-                      "additionalProperties": { "type": "number" }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "404": { "description": "Currency not found" },
-          "500": { "description": "Server Error" }
         }
       }
     }
-  
-  
   },
   "components": {
     "securitySchemes": {
@@ -1009,6 +1016,389 @@
         "type": "apiKey",
         "in": "header",
         "name": "X-API-Key"
+      }
+    },
+    "schemas": {
+      "Customer": {
+        "type": "object",
+        "properties": {
+          "phoneNumber": {
+            "type": "string",
+            "description": "Phone number in E.164 format (e.g. +2250700000000)"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": ["phoneNumber"]
+      },
+      "Recipient": {
+        "type": "object",
+        "properties": {
+          "phoneNumber": {
+            "type": "string",
+            "description": "Recipient phone number in E.164 format"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": ["phoneNumber"]
+      },
+      "PaymentInitiateRequest": {
+        "type": "object",
+        "properties": {
+          "merchantReference": {
+            "type": "string",
+            "description": "Merchant reference (unique)"
+          },
+          "amount": {
+            "type": "number",
+            "minimum": 1
+          },
+          "currency": {
+            "type": "string",
+            "example": "XOF"
+          },
+          "channel": {
+            "type": "string",
+            "example": "mtn_momo"
+          },
+          "country": {
+            "type": "string",
+            "example": "CI"
+          },
+          "customer": {
+            "$ref": "#/components/schemas/Customer"
+          },
+          "description": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "workflow": {
+            "type": "string",
+            "enum": ["otp", "in_app"],
+            "description": "Payment workflow"
+          },
+          "otp": {
+            "type": "string",
+            "nullable": true,
+            "description": "OTP value (required when workflow=otp and submitting OTP)"
+          },
+          "successRedirectUrl": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true
+          },
+          "failedRedirectUrl": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true
+          }
+        },
+        "required": ["merchantReference", "amount", "currency", "channel", "country", "customer"]
+      },
+      "TransferInitiateRequest": {
+        "type": "object",
+        "properties": {
+          "merchantReference": {
+            "type": "string",
+            "description": "Merchant transfer id (unique)"
+          },
+          "amount": {
+            "type": "number",
+            "minimum": 1
+          },
+          "currency": {
+            "type": "string",
+            "example": "XOF"
+          },
+          "channel": {
+            "type": "string",
+            "example": "mtn_momo"
+          },
+          "country": {
+            "type": "string",
+            "example": "CI"
+          },
+          "recipient": {
+            "$ref": "#/components/schemas/Recipient"
+          },
+          "description": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": ["merchantReference", "amount", "currency", "channel", "country", "recipient"]
+      },
+      "WebhookCreateRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "webhookUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "eventTypes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "transactionTypes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "isActive": {
+            "type": "boolean",
+            "default": true
+          },
+          "maxRetries": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "default": 3
+          },
+          "timeoutSeconds": {
+            "type": "integer",
+            "minimum": 5,
+            "maximum": 60,
+            "default": 30
+          }
+        },
+        "required": ["name", "webhookUrl", "eventTypes"]
+      },
+      "Webhook": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "webhookUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "eventTypes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "transactionTypes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "maxRetries": {
+            "type": "integer"
+          },
+          "timeoutSeconds": {
+            "type": "integer"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Balance": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string"
+          },
+          "available": {
+            "type": "number"
+          },
+          "ledger": {
+            "type": "number"
+          },
+          "accountId": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Pagination": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Payment": {
+        "type": "object",
+        "properties": {
+          "transactionId": {
+            "type": "string"
+          },
+          "merchantReference": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "customer": {
+            "$ref": "#/components/schemas/Customer"
+          },
+          "description": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "validationData": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "Transfer": {
+        "type": "object",
+        "properties": {
+          "transferId": {
+            "type": "string"
+          },
+          "merchantReference": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "recipient": {
+            "$ref": "#/components/schemas/Recipient"
+          },
+          "description": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Transaction": {
+        "type": "object",
+        "properties": {
+          "transactionId": {
+            "type": "string"
+          },
+          "merchantReference": {
+            "type": "string"
+          },
+          "transactionType": {
+            "type": "string",
+            "description": "payment | transfer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
       }
     }
   }

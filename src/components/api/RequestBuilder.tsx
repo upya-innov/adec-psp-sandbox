@@ -1,20 +1,20 @@
-'use client'
+'use client';
 
-import { useState, type Dispatch, type SetStateAction, useEffect, useRef } from 'react'
-import { Endpoint } from '@/types/openapi'
-import { ChevronDown, ChevronUp, Plus, Trash2, Key, FileText } from 'lucide-react'
+import { useState, type Dispatch, type SetStateAction, useEffect } from 'react';
+import { Endpoint } from '@/types/openapi';
+import { ChevronDown, ChevronUp, Plus, Trash2, Key, FileText } from 'lucide-react';
 
 interface RequestBuilderProps {
-  endpoint: Endpoint
-  requestBody: string
-  setRequestBody: Dispatch<SetStateAction<string>>
-  queryParams: Record<string, string>
-  setQueryParams: Dispatch<SetStateAction<Record<string, string>>>
-  headers: Record<string, string>
-  setHeaders: Dispatch<SetStateAction<Record<string, string>>>
-  environment: 'sandbox' | 'live'
-  accessToken?: string
-  apiKey?: string
+  endpoint: Endpoint;
+  requestBody: string;
+  setRequestBody: Dispatch<SetStateAction<string>>;
+  queryParams: Record<string, string>;
+  setQueryParams: Dispatch<SetStateAction<Record<string, string>>>;
+  headers: Record<string, string>;
+  setHeaders: Dispatch<SetStateAction<Record<string, string>>>;
+  environment: 'sandbox' | 'live';
+  accessToken?: string;
+  apiKey?: string;
 }
 
 export default function RequestBuilder({
@@ -29,172 +29,153 @@ export default function RequestBuilder({
   accessToken,
   apiKey,
 }: RequestBuilderProps) {
-  const [activeTab, setActiveTab] = useState<'body' | 'params' | 'headers'>('body')
+  const [activeTab, setActiveTab] = useState<'body' | 'params' | 'headers'>('body');
   const [expandedSections, setExpandedSections] = useState({
     params: true,
     headers: true,
     body: true,
-  })
+  });
 
-  // Références pour garder le focus sur les inputs
-  const inputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({})
-
-  // Sauvegarder l'état des sections développées dans localStorage
+  // Sauvegarder l'état d'expansion
   useEffect(() => {
-    const savedSections = localStorage.getItem('requestBuilder_expandedSections')
+    const savedSections = localStorage.getItem('requestBuilder_expandedSections');
     if (savedSections) {
       try {
-        setExpandedSections(JSON.parse(savedSections))
+        setExpandedSections(JSON.parse(savedSections));
       } catch (e) {
-        console.error('Error parsing saved sections', e)
+        console.error('Error parsing saved sections', e);
       }
     }
-  }, [])
+  }, []);
 
-  // Sauvegarder quand les sections changent
   useEffect(() => {
-    localStorage.setItem('requestBuilder_expandedSections', JSON.stringify(expandedSections))
-  }, [expandedSections])
+    localStorage.setItem('requestBuilder_expandedSections', JSON.stringify(expandedSections));
+  }, [expandedSections]);
 
   const toggleSection = (section: 'params' | 'headers' | 'body') => {
-    setExpandedSections((prev) => ({
-      ...prev,
-      [section]: !prev[section]
-    }))
-  }
+    setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
+  };
 
-  const endpointParams = endpoint.parameters || []
+  const endpointParams = endpoint.parameters || [];
 
-  const endpointNeedsApiKey =
-    endpoint.path.includes('/api-key') ||
-    (endpoint.security || []).some((sec: any) => Object.prototype.hasOwnProperty.call(sec, 'apiKeyAuth'))
+  // Fineo PSP: API Key sur tout sauf /health
+  const endpointNeedsApiKey = (endpoint.path || '').toLowerCase() !== '/health';
 
+  const hasBody = ['POST', 'PUT', 'PATCH'].includes(endpoint.method);
+
+  // ✅ Headers par défaut avec x-environment basé sur la prop environment
   const defaultHeaders: Record<string, string> = {
-    'Content-Type': 'application/json',
-  }
+    Accept: 'application/json',
+    'x-environment': environment, // Header requis par l'API, automatiquement ajouté
+    ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+    ...(endpointNeedsApiKey && apiKey ? { 'X-API-Key': apiKey } : {}),
+  };
 
-  if (accessToken) defaultHeaders['Authorization'] = `Bearer ${accessToken}`
-  if (endpointNeedsApiKey && apiKey) defaultHeaders['X-API-Key'] = apiKey
+  // ✅ Fonction pour vérifier les headers verrouillés (non modifiables par l'utilisateur)
+  const isLockedHeader = (key: string) => {
+    const k = key.trim().toLowerCase();
+    return k === 'content-type' ||
+      k === 'authorization' ||
+      k === 'x-api-key' ||
+      k === 'accept' ||
+      k === 'x-environment'; // x-environment est verrouillé car basé sur la sélection
+  };
 
-  const allHeaders = { ...defaultHeaders, ...headers }
+  // ✅ Nettoyer les headers personnalisés (enlever ceux qui sont verrouillés)
+  const sanitizedHeaders: Record<string, string> = {};
+  Object.entries(headers).forEach(([k, v]) => {
+    const key = k.trim();
+    if (!key) return;
+    const lk = key.toLowerCase();
+    if (isLockedHeader(lk)) return;
+    sanitizedHeaders[key] = v;
+  });
+
+  // ✅ Tous les headers (default + sanitized custom)
+  const allHeaders = { ...defaultHeaders, ...sanitizedHeaders };
 
   const handleQueryParamChange = (key: string, value: string) => {
-    setQueryParams((prev) => ({
-      ...prev,
-      [key]: value
-    }))
-  }
+    setQueryParams((prev) => ({ ...prev, [key]: value }));
+  };
 
   const addQueryParam = () => {
-    const newKey = `param${Date.now()}`
-    setQueryParams((prev) => ({
-      ...prev,
-      [newKey]: ''
-    }))
-
-    // Focus sur le nouveau champ après un court délai pour laisser le DOM se mettre à jour
-    setTimeout(() => {
-      const inputKey = document.querySelector(`input[data-param-key="${newKey}"]`) as HTMLInputElement
-      if (inputKey) {
-        inputKey.focus()
-      }
-    }, 50)
-  }
+    const newKey = `param${Date.now()}`;
+    setQueryParams((prev) => ({ ...prev, [newKey]: '' }));
+  };
 
   const removeQueryParam = (key: string) => {
-    const newParams = { ...queryParams }
-    delete newParams[key]
-    setQueryParams(newParams)
-  }
-
-  const isLockedHeader = (key: string) => ['Content-Type', 'Authorization', 'X-API-Key'].includes(key)
+    setQueryParams((prev) => {
+      const copy = { ...prev };
+      delete copy[key];
+      return copy;
+    });
+  };
 
   const handleHeaderChange = (key: string, value: string) => {
-    if (isLockedHeader(key)) return
-    setHeaders((prev) => ({
-      ...prev,
-      [key]: value
-    }))
-  }
+    if (isLockedHeader(key)) return;
+    setHeaders((prev) => ({ ...prev, [key]: value }));
+  };
 
   const addHeader = () => {
-    const newKey = `header${Date.now()}`
-    setHeaders((prev) => ({
-      ...prev,
-      [newKey]: ''
-    }))
-
-    // Focus sur le nouveau champ après un court délai
-    setTimeout(() => {
-      const inputKey = document.querySelector(`input[data-header-key="${newKey}"]`) as HTMLInputElement
-      if (inputKey) {
-        inputKey.focus()
-      }
-    }, 50)
-  }
+    const newKey = `header${Date.now()}`;
+    setHeaders((prev) => ({ ...prev, [newKey]: '' }));
+  };
 
   const removeHeader = (key: string) => {
-    if (isLockedHeader(key)) return
+    if (isLockedHeader(key)) return;
     setHeaders((prev) => {
-      const copy = { ...prev }
-      delete copy[key]
-      return copy
-    })
-  }
+      const copy = { ...prev };
+      delete copy[key];
+      return copy;
+    });
+  };
 
   const formatJson = () => {
     try {
-      const parsed = JSON.parse(requestBody)
-      setRequestBody(JSON.stringify(parsed, null, 2))
-    } catch { }
-  }
+      const parsed = JSON.parse(requestBody);
+      setRequestBody(JSON.stringify(parsed, null, 2));
+    } catch {
+      // Ignorer
+    }
+  };
 
   const validateJson = () => {
     try {
-      JSON.parse(requestBody)
-      return { valid: true, error: null as string | null }
+      JSON.parse(requestBody);
+      return { valid: true, error: null as string | null };
     } catch (error: unknown) {
-      return { valid: false, error: error instanceof Error ? error.message : 'JSON invalide' }
+      return { valid: false, error: error instanceof Error ? error.message : 'JSON invalide' };
     }
-  }
+  };
 
-  const jsonValidation = validateJson()
+  const jsonValidation = validateJson();
 
-  // Fonction pour gérer le changement de clé de paramètre
   const handleParamKeyChange = (oldKey: string, newKey: string, currentValue: string) => {
-    if (oldKey === newKey) return
+    const trimmed = newKey.trim();
+    if (!trimmed || oldKey === trimmed) return;
 
-    const newParams = { ...queryParams }
-    delete newParams[oldKey]
-    newParams[newKey] = currentValue
-    setQueryParams(newParams)
+    setQueryParams((prev) => {
+      const copy = { ...prev };
+      if (Object.prototype.hasOwnProperty.call(copy, trimmed)) return prev;
+      delete copy[oldKey];
+      copy[trimmed] = currentValue;
+      return copy;
+    });
+  };
 
-    // Focus sur le champ valeur après le changement de clé
-    setTimeout(() => {
-      const inputValue = document.querySelector(`input[data-param-value="${newKey}"]`) as HTMLInputElement
-      if (inputValue) {
-        inputValue.focus()
-      }
-    }, 50)
-  }
-
-  // Fonction pour gérer le changement de clé de header
   const handleHeaderKeyChange = (oldKey: string, newKey: string, currentValue: string) => {
-    if (oldKey === newKey || isLockedHeader(oldKey)) return
+    if (isLockedHeader(oldKey)) return;
+    const trimmed = newKey.trim();
+    if (!trimmed || oldKey === trimmed || isLockedHeader(trimmed)) return;
 
-    const newHeaders = { ...headers }
-    delete newHeaders[oldKey]
-    newHeaders[newKey] = currentValue
-    setHeaders(newHeaders)
-
-    // Focus sur le champ valeur après le changement de clé
-    setTimeout(() => {
-      const inputValue = document.querySelector(`input[data-header-value="${newKey}"]`) as HTMLInputElement
-      if (inputValue) {
-        inputValue.focus()
-      }
-    }, 50)
-  }
+    setHeaders((prev) => {
+      const copy = { ...prev };
+      if (Object.prototype.hasOwnProperty.call(copy, trimmed)) return prev;
+      delete copy[oldKey];
+      copy[trimmed] = currentValue;
+      return copy;
+    });
+  };
 
   return (
     <div className="bg-white rounded-lg shadow">
@@ -202,8 +183,11 @@ export default function RequestBuilder({
         <div className="flex">
           <button
             onClick={() => setActiveTab('body')}
-            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'body' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'body'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
+            type="button"
           >
             <FileText className="h-4 w-4 inline mr-2" />
             Body
@@ -211,8 +195,11 @@ export default function RequestBuilder({
 
           <button
             onClick={() => setActiveTab('params')}
-            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'params' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'params'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
+            type="button"
           >
             <Key className="h-4 w-4 inline mr-2" />
             Query Parameters
@@ -225,8 +212,11 @@ export default function RequestBuilder({
 
           <button
             onClick={() => setActiveTab('headers')}
-            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'headers' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'headers'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
+            type="button"
           >
             <Key className="h-4 w-4 inline mr-2" />
             Headers
@@ -247,22 +237,22 @@ export default function RequestBuilder({
                   className="text-gray-500 hover:text-gray-700"
                   type="button"
                 >
-                  {expandedSections.body ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+                  {expandedSections.body ? (
+                    <ChevronUp className="h-5 w-5" />
+                  ) : (
+                    <ChevronDown className="h-5 w-5" />
+                  )}
                 </button>
                 <h4 className="font-medium">Request Body</h4>
               </div>
-              <button
-                onClick={formatJson}
-                className="text-sm text-blue-600 hover:text-blue-800"
-                type="button"
-              >
+              <button onClick={formatJson} className="text-sm text-blue-600 hover:text-blue-800" type="button">
                 Formatter JSON
               </button>
             </div>
 
             {expandedSections.body && (
               <>
-                {['POST', 'PUT', 'PATCH'].includes(endpoint.method) ? (
+                {hasBody ? (
                   <div className="space-y-2">
                     <div className="relative">
                       <textarea
@@ -310,7 +300,11 @@ export default function RequestBuilder({
                   className="text-gray-500 hover:text-gray-700"
                   type="button"
                 >
-                  {expandedSections.params ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+                  {expandedSections.params ? (
+                    <ChevronUp className="h-5 w-5" />
+                  ) : (
+                    <ChevronDown className="h-5 w-5" />
+                  )}
                 </button>
                 <h4 className="font-medium">Query Parameters</h4>
               </div>
@@ -355,7 +349,7 @@ export default function RequestBuilder({
 
                 {/* Paramètres personnalisés */}
                 {Object.entries(queryParams)
-                  .filter(([key]) => !endpointParams.some((p: any) => p.name === key))
+                  .filter(([key]) => !endpointParams.some((p: any) => p.in === 'query' && p.name === key))
                   .map(([key, value], index) => (
                     <div key={`custom-param-${key}-${index}`} className="flex items-center gap-2">
                       <input
@@ -364,7 +358,6 @@ export default function RequestBuilder({
                         onChange={(e) => handleParamKeyChange(key, e.target.value, value)}
                         className="flex-1 px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         placeholder="Clé"
-                        data-param-key={key}
                       />
                       <input
                         type="text"
@@ -372,7 +365,6 @@ export default function RequestBuilder({
                         onChange={(e) => handleQueryParamChange(key, e.target.value)}
                         className="flex-1 px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         placeholder="Valeur"
-                        data-param-value={key}
                       />
                       <button
                         onClick={() => removeQueryParam(key)}
@@ -385,11 +377,12 @@ export default function RequestBuilder({
                     </div>
                   ))}
 
-                {Object.keys(queryParams).filter(k => !endpointParams.some((p: any) => p.name === k)).length === 0 && (
-                  <div className="text-center py-4 text-gray-500">
-                    <p className="text-sm">Aucun paramètre personnalisé. Cliquez sur "Ajouter" pour en créer un.</p>
-                  </div>
-                )}
+                {Object.keys(queryParams).filter((k) => !endpointParams.some((p: any) => p.in === 'query' && p.name === k))
+                  .length === 0 && (
+                    <div className="text-center py-4 text-gray-500">
+                      <p className="text-sm">Aucun paramètre personnalisé. Cliquez sur "Ajouter" pour en créer un.</p>
+                    </div>
+                  )}
               </div>
             )}
           </div>
@@ -404,7 +397,11 @@ export default function RequestBuilder({
                   className="text-gray-500 hover:text-gray-700"
                   type="button"
                 >
-                  {expandedSections.headers ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+                  {expandedSections.headers ? (
+                    <ChevronUp className="h-5 w-5" />
+                  ) : (
+                    <ChevronDown className="h-5 w-5" />
+                  )}
                 </button>
                 <h4 className="font-medium">Headers</h4>
               </div>
@@ -420,7 +417,7 @@ export default function RequestBuilder({
 
             {expandedSections.headers && (
               <div className="space-y-3">
-                {/* Headers par défaut */}
+                {/* Headers par défaut (non modifiables) */}
                 {Object.entries(defaultHeaders).map(([key, value]) => (
                   <div key={`default-header-${key}`} className="space-y-1">
                     <div className="flex items-center justify-between">
@@ -436,47 +433,58 @@ export default function RequestBuilder({
                       type="text"
                       value={value}
                       readOnly
-                      className="w-full px-3 py-2 border rounded-md text-sm bg-gray-50"
+                      className="w-full px-3 py-2 border rounded-md text-sm bg-gray-50 font-mono"
                     />
                   </div>
                 ))}
 
                 {/* Headers personnalisés */}
-                {Object.entries(headers).map(([key, value], index) => (
-                  <div key={`custom-header-${key}-${index}`} className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={key}
-                      onChange={(e) => handleHeaderKeyChange(key, e.target.value, value)}
-                      disabled={isLockedHeader(key)}
-                      className={`flex-1 px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${isLockedHeader(key) ? 'bg-gray-50' : ''}`}
-                      placeholder="Clé"
-                      data-header-key={key}
-                    />
-                    <input
-                      type="text"
-                      value={value}
-                      onChange={(e) => handleHeaderChange(key, e.target.value)}
-                      disabled={isLockedHeader(key)}
-                      className={`flex-1 px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${isLockedHeader(key) ? 'bg-gray-50' : ''}`}
-                      placeholder="Valeur"
-                      data-header-value={key}
-                    />
-                    <button
-                      onClick={() => removeHeader(key)}
-                      className="p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors"
-                      type="button"
-                      title="Supprimer ce header"
-                      disabled={isLockedHeader(key)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                ))}
+                {Object.entries(headers).map(([key, value], index) => {
+                  // Ne pas afficher les headers qui sont déjà dans defaultHeaders
+                  if (defaultHeaders[key]) return null;
 
-                {Object.keys(headers).length === 0 && (
+                  return (
+                    <div key={`custom-header-${key}-${index}`} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={key}
+                        onChange={(e) => handleHeaderKeyChange(key, e.target.value, value)}
+                        disabled={isLockedHeader(key)}
+                        className={`flex-1 px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${isLockedHeader(key) ? 'bg-gray-50' : ''
+                          }`}
+                        placeholder="Clé"
+                      />
+                      <input
+                        type="text"
+                        value={value}
+                        onChange={(e) => handleHeaderChange(key, e.target.value)}
+                        disabled={isLockedHeader(key)}
+                        className={`flex-1 px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${isLockedHeader(key) ? 'bg-gray-50' : ''
+                          }`}
+                        placeholder="Valeur"
+                      />
+                      <button
+                        onClick={() => removeHeader(key)}
+                        className="p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                        type="button"
+                        title="Supprimer ce header"
+                        disabled={isLockedHeader(key)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  );
+                })}
+
+                {Object.keys(headers).filter(key => !defaultHeaders[key]).length === 0 && (
                   <div className="text-center py-4 text-gray-500">
                     <p className="text-sm">Aucun header personnalisé. Cliquez sur "Ajouter" pour en créer un.</p>
+                  </div>
+                )}
+
+                {endpointNeedsApiKey && !apiKey && (
+                  <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 p-3 rounded">
+                    Cet endpoint nécessite une <b>X-API-Key</b>, mais aucune API key n&apos;est fournie.
                   </div>
                 )}
               </div>
@@ -485,5 +493,5 @@ export default function RequestBuilder({
         )}
       </div>
     </div>
-  )
+  );
 }

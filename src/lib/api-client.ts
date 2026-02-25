@@ -4,6 +4,7 @@ export async function apiFetch(params: {
   headers?: Record<string, string>;
   body?: any;
   queryParams?: Record<string, any>;
+  environment?: 'sandbox' | 'live';
 }) {
   const res = await fetch('/api/proxy', {
     method: 'POST',
@@ -15,6 +16,7 @@ export async function apiFetch(params: {
       headers: params.headers || {},
       body: params.body,
       queryParams: params.queryParams || {},
+      environment: params.environment || 'sandbox',
     }),
   });
 

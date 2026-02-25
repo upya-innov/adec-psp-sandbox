@@ -53,7 +53,10 @@ export default function ResponseViewer({ response, loading }: ResponseViewerProp
   }
 
   const copyToClipboard = () => {
-    const textToCopy = JSON.stringify(response.data || response, null, 2);
+    const textToCopy = typeof response.data === 'object'
+      ? JSON.stringify(response.data, null, 2)
+      : String(response.data || response);
+
     navigator.clipboard.writeText(textToCopy)
       .then(() => {
         setCopied(true);
@@ -64,12 +67,27 @@ export default function ResponseViewer({ response, loading }: ResponseViewerProp
       });
   };
 
-  const formatJson = (data: any) => {
+  const formatJson = (data: any): string => {
     try {
-      if (typeof data === 'string') {
-        return JSON.stringify(JSON.parse(data), null, 2);
+      if (data === null || data === undefined) {
+        return 'null';
       }
-      return JSON.stringify(data, null, 2);
+
+      if (typeof data === 'string') {
+        // Essayer de parser si c'est du JSON
+        try {
+          const parsed = JSON.parse(data);
+          return JSON.stringify(parsed, null, 2);
+        } catch {
+          return data;
+        }
+      }
+
+      if (typeof data === 'object') {
+        return JSON.stringify(data, null, 2);
+      }
+
+      return String(data);
     } catch (e) {
       return String(data);
     }
@@ -96,17 +114,23 @@ export default function ResponseViewer({ response, loading }: ResponseViewerProp
     }));
   };
 
-  // Fonction pour convertir n'importe quelle valeur en string sécurisée pour React
+  // Fonction sécurisée pour convertir n'importe quelle valeur en string
   const safeStringify = (value: any): string => {
     if (value === null) return 'null';
     if (value === undefined) return 'undefined';
+
     if (typeof value === 'object') {
       try {
-        return JSON.stringify(value, null, 2);
+        return JSON.stringify(value);
       } catch (e) {
-        return String(value);
+        return '[Object]';
       }
     }
+
+    if (typeof value === 'function') {
+      return '[Function]';
+    }
+
     return String(value);
   };
 
@@ -195,7 +219,7 @@ export default function ResponseViewer({ response, loading }: ResponseViewerProp
           {expandedSections.body && response.data && (
             <div className="px-4 pb-4">
               <div className="relative">
-                <pre className="bg-gray-900 text-gray-100 rounded-lg p-4 text-sm overflow-x-auto max-h-96 overflow-y-auto">
+                <pre className="bg-gray-900 text-gray-100 rounded-lg p-4 text-sm overflow-x-auto max-h-96 overflow-y-auto font-mono">
                   {formatJson(response.data)}
                 </pre>
               </div>

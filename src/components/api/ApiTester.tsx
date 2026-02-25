@@ -1,19 +1,20 @@
-// /components/api/ApiTester.tsx
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Endpoint } from '@/types/openapi';
 import RequestBuilder from './RequestBuilder';
 import ResponseViewer from './ResponseViewer';
-import { Play, Save, Copy, RotateCcw, AlertCircle } from 'lucide-react';
+import { Play, Save, Copy, RotateCcw, AlertCircle, ToggleLeft, ToggleRight, Info } from 'lucide-react';
 
 type Env = 'sandbox' | 'live';
 
-// ✅ Mets ici tes vraies URLs (si sandbox a un autre domaine, remplace)
+// URLs de l'API
 const API_BASE: Record<Env, string> = {
   sandbox: 'https://psp-api.fineopay.com/api/v1',
   live: 'https://psp-api.fineopay.com/api/v1',
 };
+
+type PaymentWorkflow = 'otp' | 'in_app' | undefined;
 
 interface ApiTesterProps {
   endpoint: Endpoint;
@@ -36,44 +37,115 @@ export default function ApiTester({
   const [error, setError] = useState<string>('');
   const [requestHistory, setRequestHistory] = useState<any[]>([]);
 
-  // ✅ Fix: baseUrl dépend de l'environnement + health = /api/v1/health (dans la doc)
+  // Workflow selector pour /payments/initiate
+  const isPaymentInitiate = endpoint.path === '/payments/initiate' && endpoint.method === 'POST';
+  const [paymentWorkflow, setPaymentWorkflow] = useState<PaymentWorkflow>('otp');
+
   const baseUrl = API_BASE[environment];
 
-  const getAuthType = (endpoint: Endpoint): 'jwt' | 'apiKey' | 'none' => {
-    const path = endpoint.path.toLowerCase();
-
-    if (path.includes('/api-key') || path.includes('/api-keys')) return 'apiKey';
-
-    if (path.startsWith('/auth/') && path !== '/auth/login') return 'jwt';
-
-    if (endpoint.security && endpoint.security.length > 0) {
-      const security = endpoint.security[0];
-      if (security && typeof security === 'object') {
-        if ('bearerAuth' in security) return 'jwt';
-        if ('apiKeyAuth' in security) return 'apiKey';
-      }
-    }
-
-    const publicEndpoints = [
-      '/health',
-      '/auth/login',
-      '/auth/refresh',
-      '/auth/verify-email',
-      '/auth/verify-email/code',
-      '/onboarding/register',
-      '/countries',
-      '/channels',
-      '/currencies',
-      '/business-types',
-      '/partners',
-      '/currency-exchange-rates'
-    ];
-
-    if (!publicEndpoints.some(publicPath => path === publicPath)) return 'jwt';
-    return 'none';
+  // Fineo PSP: tout est API Key sauf /health
+  const getAuthType = (ep: Endpoint): 'apiKey' | 'none' => {
+    const path = (ep.path || '').toLowerCase();
+    if (path === '/health') return 'none';
+    return 'apiKey';
   };
 
   const endpointNeedsApiKey = getAuthType(endpoint) === 'apiKey';
+
+  const buildPaymentExample = (workflow?: PaymentWorkflow) => {
+    const common = {
+      merchantReference: `order-${Date.now()}`,
+      amount: 5000,
+      currency: 'XOF',
+      channel: 'mtn_momo',
+      country: 'CI',
+      customer: {
+        phoneNumber: '+2250700000000',
+        email: 'customer@example.com',
+        name: 'John Doe',
+      },
+      description: 'Payment for order #123',
+      metadata: { orderId: '123' },
+    };
+
+    if (workflow === 'otp') {
+      return {
+        ...common,
+        workflow: 'otp',
+        otp: '',
+      };
+    }
+
+    if (workflow === 'in_app') {
+      return {
+        ...common,
+        workflow: 'in_app',
+        successRedirectUrl: 'https://myapp.com/payment/success',
+        failedRedirectUrl: 'https://myapp.com/payment/failed',
+      };
+    }
+
+    // Pas de workflow (legacy)
+    return common;
+  };
+
+  const buildTransferExample = () => ({
+    merchantReference: `transfer-${Date.now()}`,
+    amount: 5000,
+    currency: 'XOF',
+    channel: 'mtn_momo',
+    country: 'CI',
+    recipient: {
+      phoneNumber: '+2250700000000',
+      name: 'Jane Doe',
+    },
+    description: 'Payout to supplier',
+    metadata: {},
+  });
+
+  const buildWebhookExample = () => ({
+    name: 'Payment Notifications',
+    webhookUrl: 'https://myapp.com/webhooks/payments',
+    eventTypes: ['payment.completed', 'payment.failed'],
+    transactionTypes: ['payment', 'transfer'],
+    isActive: true,
+    maxRetries: 6,
+    timeoutSeconds: 30,
+  });
+
+  // Auto: quand on sélectionne un endpoint, on met un exemple par défaut
+  useEffect(() => {
+    setError('');
+    setResponse(null);
+
+    if (isPaymentInitiate) {
+      const example = buildPaymentExample(paymentWorkflow);
+      setRequestBody(JSON.stringify(example, null, 2));
+      return;
+    }
+
+    if (endpoint.path === '/transfers/initiate' && endpoint.method === 'POST') {
+      setRequestBody(JSON.stringify(buildTransferExample(), null, 2));
+      return;
+    }
+
+    if (endpoint.path === '/webhooks' && endpoint.method === 'POST') {
+      setRequestBody(JSON.stringify(buildWebhookExample(), null, 2));
+      return;
+    }
+
+    // Pour les endpoints GET, on peut laisser vide
+    if (endpoint.method === 'GET') {
+      setRequestBody('');
+    }
+  }, [endpoint.path, endpoint.method, paymentWorkflow]);
+
+  // Quand le workflow change, on regenère le body
+  useEffect(() => {
+    if (!isPaymentInitiate) return;
+    const example = buildPaymentExample(paymentWorkflow);
+    setRequestBody(JSON.stringify(example, null, 2));
+  }, [paymentWorkflow]);
 
   const handleSendRequest = async () => {
     setLoading(true);
@@ -84,31 +156,39 @@ export default function ApiTester({
       const url = new URL(`${baseUrl}${endpoint.path}`);
 
       Object.entries(queryParams).forEach(([key, value]) => {
-        if (value.trim()) url.searchParams.append(key, value);
+        if (typeof value === 'string' && value.trim()) {
+          url.searchParams.append(key, value.trim());
+        }
       });
 
       const authType = getAuthType(endpoint);
+
+      // ✅ Headers par défaut avec x-environment basé sur la sélection
       const defaultHeaders: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
+        Accept: 'application/json',
+        'x-environment': environment, // Header requis par l'API
       };
 
-      switch (authType) {
-        case 'jwt':
-          if (accessToken) defaultHeaders['Authorization'] = `Bearer ${accessToken}`;
-          else throw new Error('Ce endpoint nécessite un token JWT. Connectez-vous d\'abord.');
-          break;
+      const hasBody = ['POST', 'PUT', 'PATCH'].includes(endpoint.method);
+      if (hasBody) defaultHeaders['Content-Type'] = 'application/json';
 
-        case 'apiKey':
-          if (apiKey) defaultHeaders['X-API-Key'] = apiKey;
-          else throw new Error('Ce endpoint nécessite une API Key. Créez-en une d\'abord.');
-          break;
-
-        case 'none':
-          break;
+      if (authType === 'apiKey') {
+        if (!apiKey) throw new Error("Ce endpoint nécessite une API Key.");
+        defaultHeaders['X-API-Key'] = apiKey;
       }
 
-      const finalHeaders = { ...defaultHeaders, ...headers };
+      // ✅ Évite que l'utilisateur écrase les headers critiques
+      const sanitizedCustomHeaders: Record<string, string> = {};
+      Object.entries(headers).forEach(([k, v]) => {
+        const key = k.trim();
+        if (!key) return;
+        const lk = key.toLowerCase();
+        // Ne pas autoriser l'écrasement des headers critiques
+        if (lk === 'x-api-key' || lk === 'content-type' || lk === 'accept' || lk === 'x-environment') return;
+        sanitizedCustomHeaders[key] = v;
+      });
+
+      const finalHeaders = { ...defaultHeaders, ...sanitizedCustomHeaders };
 
       const options: RequestInit = {
         method: endpoint.method,
@@ -116,22 +196,36 @@ export default function ApiTester({
         cache: 'no-cache',
       };
 
-      if (['POST', 'PUT', 'PATCH'].includes(endpoint.method) && requestBody) {
+      if (hasBody && requestBody) {
+        let bodyObj: any;
         try {
-          JSON.parse(requestBody);
-          options.body = requestBody;
+          bodyObj = JSON.parse(requestBody);
         } catch {
           throw new Error('Le corps de la requête doit être un JSON valide');
         }
-      }
 
-      console.log('📤 Envoi de la requête:', {
-        url: url.toString(),
-        method: endpoint.method,
-        headers: finalHeaders,
-        body: requestBody || 'none',
-        environment,
-      });
+        // Guard rails pour payments/initiate
+        if (isPaymentInitiate) {
+          const wf = bodyObj.workflow;
+
+          if (wf === 'in_app') {
+            if (!bodyObj.successRedirectUrl || !bodyObj.failedRedirectUrl) {
+              throw new Error(
+                'workflow=in_app nécessite successRedirectUrl et failedRedirectUrl.'
+              );
+            }
+            if ('otp' in bodyObj) delete bodyObj.otp;
+          }
+
+          if (wf === 'otp') {
+            if (!('otp' in bodyObj)) bodyObj.otp = '';
+            if ('successRedirectUrl' in bodyObj) delete bodyObj.successRedirectUrl;
+            if ('failedRedirectUrl' in bodyObj) delete bodyObj.failedRedirectUrl;
+          }
+        }
+
+        options.body = JSON.stringify(bodyObj);
+      }
 
       const startTime = Date.now();
       const apiResponse = await fetch(url.toString(), options);
@@ -143,8 +237,7 @@ export default function ApiTester({
       try {
         responseText = await apiResponse.text();
         responseData = responseText ? JSON.parse(responseText) : {};
-      } catch (parseError) {
-        console.warn('Impossible de parser la réponse JSON:', parseError);
+      } catch {
         responseData = { raw: responseText };
       }
 
@@ -158,7 +251,6 @@ export default function ApiTester({
         url: url.toString(),
       };
 
-      console.log('📥 Réponse reçue:', responseInfo);
       setResponse(responseInfo);
 
       const historyItem = {
@@ -167,7 +259,7 @@ export default function ApiTester({
         request: {
           endpoint: endpoint.path,
           method: endpoint.method,
-          body: requestBody,
+          body: hasBody ? requestBody : '',
           queryParams,
           headers: finalHeaders,
           url: url.toString(),
@@ -176,23 +268,40 @@ export default function ApiTester({
         response: responseInfo,
       };
 
-      setRequestHistory(prev => [historyItem, ...prev.slice(0, 9)]);
+      setRequestHistory((prev) => [historyItem, ...prev.slice(0, 9)]);
 
-      if (!apiResponse.ok) setError(`Erreur ${apiResponse.status}: ${apiResponse.statusText}`);
+      if (!apiResponse.ok) {
+        setError(`Erreur ${apiResponse.status}: ${apiResponse.statusText}`);
+      }
     } catch (err: any) {
-      console.error('❌ Erreur lors de la requête:', err);
-      setError(err?.message || 'Une erreur est survenue lors de l\'envoi de la requête');
+      setError(err?.message || "Une erreur est survenue lors de l'envoi de la requête");
     } finally {
       setLoading(false);
     }
   };
 
   const handleReset = () => {
-    setRequestBody('');
     setQueryParams({});
     setHeaders({});
     setResponse(null);
     setError('');
+
+    if (isPaymentInitiate) {
+      setRequestBody(JSON.stringify(buildPaymentExample(paymentWorkflow), null, 2));
+      return;
+    }
+
+    if (endpoint.path === '/transfers/initiate' && endpoint.method === 'POST') {
+      setRequestBody(JSON.stringify(buildTransferExample(), null, 2));
+      return;
+    }
+
+    if (endpoint.path === '/webhooks' && endpoint.method === 'POST') {
+      setRequestBody(JSON.stringify(buildWebhookExample(), null, 2));
+      return;
+    }
+
+    setRequestBody('');
   };
 
   const handleSaveRequest = () => {
@@ -206,117 +315,80 @@ export default function ApiTester({
       timestamp: new Date().toISOString(),
     };
 
-    const savedRequests = JSON.parse(localStorage.getItem('adec_saved_requests') || '[]');
+    const savedRequests = JSON.parse(localStorage.getItem('psp_saved_requests') || '[]');
     savedRequests.push(requestData);
-    localStorage.setItem('adec_saved_requests', JSON.stringify(savedRequests));
+    localStorage.setItem('psp_saved_requests', JSON.stringify(savedRequests));
 
     alert('Requête sauvegardée !');
   };
 
   const generateExample = () => {
-    let example: any = {};
-
-    if (endpoint.path === '/auth/login') {
-      example = { email: 'owner@mycompany.com', password: 'SecurePassword123!' };
-    } else if (endpoint.path === '/auth/refresh') {
-      example = { refresh_token: 'your-refresh-token-here' };
-    } else if (endpoint.path === '/onboarding/register') {
-      example = {
-        owner: {
-          email: 'owner@mycompany.com',
-          password: 'SecurePassword123!',
-          first_name: 'John',
-          last_name: 'Doe',
-          phone_number: '+2250700000000',
-        },
-        company: {
-          company_name: 'My Business SARL',
-          country_id: 'country-uuid',
-          business_type_id: 'business-type-uuid',
-          business_email: 'contact@mybusiness.com',
-          phone: '+2250700000001',
-          registration_number: 'RC-12345',
-          address: '123 Rue du Commerce',
-          city: 'Abidjan',
-          postal_code: '00225',
-        },
-      };
-    } else if (endpoint.path === '/payments' || endpoint.path === '/payments/initiate') {
-      example = {
-        transaction_id: `TX-${Date.now()}`,
-        amount: 1000,
-        currency: 'XOF',
-        country: 'CI',
-        channel: 'orange_money',
-        customer: {
-          phone_number: '2250700000000',
-          email: 'customer@example.com',
-          name: 'John Doe',
-        },
-        description: 'Payment for order #12345',
-        metadata: { order_id: '12345', product: 'Premium Subscription' },
-      };
-    } else if (endpoint.path === '/transfers' || endpoint.path === '/transfers/initiate') {
-      example = {
-        transfer_id: `TR-${Date.now()}`,
-        amount: 2500,
-        currency: 'XOF',
-        country: 'BJ',
-        channel: 'mtn_momo',
-        recipient: { phone_number: '22960000000', name: 'Alice Johnson' },
-        description: 'Payout for service rendered',
-        metadata: { payout_reason: 'freelance_payment', contract_id: 'CON-789' },
-      };
-    } else if (endpoint.path === '/api-keys') {
-      example = { name: 'Production API Key', environment: 'live', permissions: ['transaction:create', 'transaction:read'] };
-    } else if (endpoint.path === '/kyc/submissions') {
-      example = { kyc_level: 'basic', metadata: { submission_reason: 'Initial KYC submission' } };
-    } else if (endpoint.path === '/tenant-channel-config') {
-      example = {
-        channel_id: 'channel-id',
-        is_enabled: true,
-        markup_type: 'percentage',
-        markup_percentage: 2.5,
-        min_amount: 100,
-        max_amount: 1000000,
-        daily_limit: 5000000,
-      };
-    } else if (endpoint.path === '/roles') {
-      example = { name: 'Finance Manager', description: 'Manages financial operations', permission_ids: ['permission-id-1', 'permission-id-2'] };
-    } else if (endpoint.path === '/users/me') {
-      example = { first_name: 'Jane Updated', last_name: 'Smith Updated' };
+    if (isPaymentInitiate) {
+      setRequestBody(JSON.stringify(buildPaymentExample(paymentWorkflow), null, 2));
+      return;
     }
 
-    setRequestBody(Object.keys(example).length > 0 ? JSON.stringify(example, null, 2) : '{}');
+    if (endpoint.path === '/transfers/initiate' && endpoint.method === 'POST') {
+      setRequestBody(JSON.stringify(buildTransferExample(), null, 2));
+      return;
+    }
+
+    if (endpoint.path === '/webhooks' && endpoint.method === 'POST') {
+      setRequestBody(JSON.stringify(buildWebhookExample(), null, 2));
+      return;
+    }
+
+    setRequestBody('{}');
   };
 
   const generateCurlCommand = (): string => {
     const url = new URL(`${baseUrl}${endpoint.path}`);
     Object.entries(queryParams).forEach(([key, value]) => {
-      if (value.trim()) url.searchParams.append(key, value);
+      if (typeof value === 'string' && value.trim()) url.searchParams.append(key, value.trim());
     });
 
     let curl = `curl -X ${endpoint.method} "${url.toString()}" \\\n`;
 
+    const authType = getAuthType(endpoint);
+
     const allHeaders: Record<string, string> = {
-      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      'x-environment': environment,
       ...headers,
     };
 
-    const authType = getAuthType(endpoint);
-    if (authType === 'jwt' && accessToken) allHeaders['Authorization'] = `Bearer ${accessToken}`;
-    else if (authType === 'apiKey' && apiKey) allHeaders['X-API-Key'] = apiKey;
+    const hasBody = ['POST', 'PUT', 'PATCH'].includes(endpoint.method);
+    if (hasBody) allHeaders['Content-Type'] = 'application/json';
+
+    if (authType === 'apiKey' && apiKey) allHeaders['X-API-Key'] = apiKey;
 
     Object.entries(allHeaders).forEach(([key, value]) => {
-      curl += `  -H "${key}: ${value}" \\\n`;
+      if (!key) return;
+      curl += `  -H "${key}: ${String(value)}" \\\n`;
     });
 
-    if (requestBody && ['POST', 'PUT', 'PATCH'].includes(endpoint.method)) {
+    if (hasBody && requestBody) {
       curl += `  -d '${requestBody}'`;
     }
 
     return curl;
   };
+
+  const methodBadgeClass = useMemo(() => {
+    switch (endpoint.method) {
+      case 'GET':
+        return 'bg-blue-100 text-blue-800';
+      case 'POST':
+        return 'bg-green-100 text-green-800';
+      case 'PUT':
+      case 'PATCH':
+        return 'bg-yellow-100 text-yellow-800';
+      case 'DELETE':
+        return 'bg-red-100 text-red-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  }, [endpoint.method]);
 
   return (
     <div className="space-y-6">
@@ -324,36 +396,41 @@ export default function ApiTester({
         <div className="flex items-start justify-between mb-4">
           <div>
             <div className="flex items-center gap-3 mb-2">
-              <span
-                className={`px-3 py-1 rounded-full text-sm font-medium ${endpoint.method === 'GET'
-                  ? 'bg-blue-100 text-blue-800'
-                  : endpoint.method === 'POST'
-                    ? 'bg-green-100 text-green-800'
-                    : endpoint.method === 'PUT'
-                      ? 'bg-yellow-100 text-yellow-800'
-                      : 'bg-red-100 text-red-800'
-                  }`}
-              >
+              <span className={`px-3 py-1 rounded-full text-sm font-medium ${methodBadgeClass}`}>
                 {endpoint.method}
               </span>
-              <code className="text-lg font-mono bg-gray-50 px-3 py-1 rounded">
-                {endpoint.path}
-              </code>
+              <code className="text-lg font-mono bg-gray-50 px-3 py-1 rounded">{endpoint.path}</code>
             </div>
             <h2 className="text-xl font-semibold">{endpoint.summary}</h2>
             <p className="text-gray-600 mt-1">{endpoint.description}</p>
+
+            {/* Info callback_url */}
+            {isPaymentInitiate && (
+              <div className="mt-3 flex items-start gap-2 bg-blue-50 border border-blue-100 rounded-md p-3">
+                <Info className="h-4 w-4 text-blue-700 mt-0.5" />
+                <div className="text-xs text-blue-800">
+                  <div className="font-medium mb-1">Webhook / callback_url</div>
+                  <div>
+                    Le <code className="bg-white/70 px-1 py-0.5 rounded">callback_url</code> ne se met pas dans la requête.
+                    Il se configure dans l&apos;espace marchand, dans la section <strong>Webhooks</strong>.
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
             <button
               onClick={generateExample}
               className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+              type="button"
             >
               Exemple
             </button>
             <button
               onClick={handleSaveRequest}
               className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 flex items-center gap-1"
+              type="button"
             >
               <Save className="h-4 w-4" />
               Sauvegarder
@@ -361,28 +438,71 @@ export default function ApiTester({
           </div>
         </div>
 
+        {/* Workflow selector pour /payments/initiate */}
+        {isPaymentInitiate && (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border rounded-md p-3 bg-gray-50">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-gray-800">Workflow de paiement :</span>
+
+              <div className="inline-flex rounded-md border bg-white overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setPaymentWorkflow('otp')}
+                  className={`px-3 py-2 text-sm flex items-center gap-2 ${paymentWorkflow === 'otp' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-50'
+                    }`}
+                >
+                  {paymentWorkflow === 'otp' ? <ToggleRight className="h-4 w-4" /> : <ToggleLeft className="h-4 w-4" />}
+                  OTP
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaymentWorkflow('in_app')}
+                  className={`px-3 py-2 text-sm flex items-center gap-2 ${paymentWorkflow === 'in_app' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-50'
+                    }`}
+                >
+                  {paymentWorkflow === 'in_app' ? <ToggleRight className="h-4 w-4" /> : <ToggleLeft className="h-4 w-4" />}
+                  IN_APP
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaymentWorkflow(undefined)}
+                  className={`px-3 py-2 text-sm flex items-center gap-2 ${paymentWorkflow === undefined ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-50'
+                    }`}
+                >
+                  Sans workflow
+                </button>
+              </div>
+            </div>
+
+            <div className="text-xs text-gray-600">
+              {paymentWorkflow === 'otp' && <span>En OTP : tu envoies <code className="bg-white px-1 rounded">workflow="otp"</code> (+ <code className="bg-white px-1 rounded">otp</code>).</span>}
+              {paymentWorkflow === 'in_app' && <span>En IN_APP : tu envoies <code className="bg-white px-1 rounded">workflow="in_app"</code> + URLs de redirection.</span>}
+              {paymentWorkflow === undefined && <span>Sans workflow : requête legacy sans champ workflow.</span>}
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center gap-4 text-sm text-gray-600">
           <div className="flex items-center gap-1">
             <span className="font-medium">Base URL:</span>
             <code className="bg-gray-50 px-2 py-1 rounded">{baseUrl}</code>
           </div>
-          {accessToken && (
-            <div className="flex items-center gap-1">
-              <span className="font-medium">Auth:</span>
-              <span className="text-green-600">✓ Authentifié</span>
-            </div>
-          )}
+
+          <div className="flex items-center gap-1">
+            <span className="font-medium">Environnement:</span>
+            <code className="bg-gray-50 px-2 py-1 rounded">{environment}</code>
+          </div>
+
           {endpointNeedsApiKey && apiKey && (
             <div className="flex items-center gap-1">
               <span className="font-medium">API Key:</span>
               <span className="text-green-600">✓ X-API-Key</span>
             </div>
           )}
+
           <div className="flex items-center gap-1">
             <span className="font-medium">Auth type:</span>
-            <span className="font-mono text-xs px-2 py-1 bg-gray-100 rounded">
-              {getAuthType(endpoint)}
-            </span>
+            <span className="font-mono text-xs px-2 py-1 bg-gray-100 rounded">{getAuthType(endpoint)}</span>
           </div>
         </div>
       </div>
@@ -407,6 +527,7 @@ export default function ApiTester({
               onClick={handleSendRequest}
               disabled={loading}
               className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50"
+              type="button"
             >
               <Play className="h-4 w-4" />
               {loading ? 'Envoi en cours...' : 'Envoyer la requête'}
@@ -415,6 +536,7 @@ export default function ApiTester({
             <button
               onClick={handleReset}
               className="flex items-center gap-2 border border-gray-300 px-4 py-2 rounded-md hover:bg-gray-50"
+              type="button"
             >
               <RotateCcw className="h-4 w-4" />
               Réinitialiser
@@ -427,6 +549,7 @@ export default function ApiTester({
                 alert('Commande cURL copiée !');
               }}
               className="flex items-center gap-2 border border-gray-300 px-4 py-2 rounded-md hover:bg-gray-50"
+              type="button"
             >
               <Copy className="h-4 w-4" />
               Copier cURL
@@ -471,22 +594,17 @@ export default function ApiTester({
                         <div className="flex items-center gap-2">
                           <span
                             className={`text-xs font-medium px-1.5 py-0.5 rounded ${item.response.status >= 200 && item.response.status < 300
-                              ? 'bg-green-100 text-green-800'
-                              : 'bg-red-100 text-red-800'
+                                ? 'bg-green-100 text-green-800'
+                                : 'bg-red-100 text-red-800'
                               }`}
                           >
                             {item.response.status}
                           </span>
-                          <span className="font-mono text-sm">
-                            {item.request.method}
-                          </span>
-                          <span className="text-sm truncate">
-                            {item.request.endpoint}
-                          </span>
+                          <span className="font-mono text-sm">{item.request.method}</span>
+                          <span className="text-sm truncate">{item.request.endpoint}</span>
                         </div>
                         <div className="text-xs text-gray-500 mt-1">
-                          {new Date(item.timestamp).toLocaleTimeString()} •{' '}
-                          {item.response.time}ms
+                          {new Date(item.timestamp).toLocaleTimeString()} • {item.response.time}ms
                         </div>
                       </div>
                     </div>

@@ -16,7 +16,7 @@ function isPathItem(obj: any): obj is Record<string, any> {
 export async function loadOpenAPISpec(): Promise<OpenAPISpec> {
   if (cachedSpec) return cachedSpec;
 
-  const response = await fetch('/openapi.json');
+  const response = await fetch('/openapi.json', { cache: 'no-store' });
   if (!response.ok) throw new Error('Failed to load OpenAPI spec');
 
   const spec = (await response.json()) as OpenAPISpec;
@@ -26,13 +26,23 @@ export async function loadOpenAPISpec(): Promise<OpenAPISpec> {
 
 export function getAllEndpoints(spec: OpenAPISpec): Endpoint[] {
   const endpoints: Endpoint[] = [];
-  const httpMethods = new Set(['get', 'post', 'put', 'delete', 'patch', 'options', 'head', 'trace']);
+  const httpMethods = new Set([
+    'get',
+    'post',
+    'put',
+    'delete',
+    'patch',
+    'options',
+    'head',
+    'trace',
+  ]);
 
   Object.entries(spec.paths || {}).forEach(([path, pathItem]) => {
     if (!isPathItem(pathItem)) return;
 
     Object.entries(pathItem).forEach(([method, operation]) => {
-      if (!httpMethods.has(method.toLowerCase())) return;
+      const lower = method.toLowerCase();
+      if (!httpMethods.has(lower)) return;
       if (!isOperation(operation)) return;
 
       endpoints.push({
@@ -45,20 +55,29 @@ export function getAllEndpoints(spec: OpenAPISpec): Endpoint[] {
         requestBody: operation.requestBody,
         responses: operation.responses || {},
         security: operation.security,
-      });
+      } as Endpoint);
     });
+  });
+
+  // Tri stable
+  endpoints.sort((a, b) => {
+    const tagA = a.tags?.[0] || '';
+    const tagB = b.tags?.[0] || '';
+    return tagA.localeCompare(tagB) || a.path.localeCompare(b.path);
   });
 
   return endpoints;
 }
 
-// ✅ AJOUT: filtrer les endpoints par tag (corrige ton erreur)
 export function getEndpointsByTag(spec: OpenAPISpec, tag: string): Endpoint[] {
   return getAllEndpoints(spec).filter((endpoint) => endpoint.tags?.includes(tag));
 }
 
-export function getEndpointByPath(spec: OpenAPISpec, path: string, method: string): Endpoint | undefined {
-  return getAllEndpoints(spec).find(
-    (endpoint) => endpoint.path === path && endpoint.method === method.toUpperCase()
-  );
+export function getEndpointByPath(
+  spec: OpenAPISpec,
+  path: string,
+  method: string
+): Endpoint | undefined {
+  const m = method.toUpperCase();
+  return getAllEndpoints(spec).find((endpoint) => endpoint.path === path && endpoint.method === m);
 }
